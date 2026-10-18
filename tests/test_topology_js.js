@@ -361,6 +361,46 @@ check('example (columns): at most 75 crossings, nothing on top of anything', cb.
 }
 check('example: no runs within 2px of another edge', clashes(exRoutes) === 0);
 
+// ------------------------------------------------------------ links to hidden devices
+{
+    const ex = require(path.join(__dirname, 'fixtures', 'example_graph.json'));
+    const segOf = {};
+    ex.nodes.forEach((n) => { segOf[n.id] = n.if; });
+    const hide = { hiddenSegments: ['vtnet3'], query: '' };
+    const plain = cb.buildModel(ex);
+    const hidden = cb.buildModel(ex, { filter: hide });
+    const ghosts = hidden.nodes.filter((n) => n.type === 'ghost');
+    check('no ghosts without a filter', !plain.nodes.some((n) => n.type === 'ghost'));
+    check('hiding Servers: a ghost per visible segment that links there', ghosts.map((g) => g.id).sort().join() === 'ghost:vtnet0:vtnet3,ghost:vtnet2:vtnet3');
+    check('ghost says which segment and how many are hidden', ghosts.every((g) => g.name === 'Servers' && g.ip === '3 hidden'));
+    // every filtered edge between a visible device and a Servers device is
+    // in exactly one grouped edge, in its own direction
+    const crossing = ex.edges.filter((e) => e.kind !== 'unfiltered' && segOf[e.from] && segOf[e.to]
+        && (segOf[e.from] === 'vtnet3') !== (segOf[e.to] === 'vtnet3'));
+    const grouped = hidden.edges.filter((e) => e.ghost);
+    const memberCount = grouped.reduce((t, e) => t + e.members.length, 0);
+    check('every link to or from a hidden device is kept in a grouped edge', crossing.length > 0 && memberCount === crossing.length);
+    check('grouped edges keep direction (out to a ghost, in from one)', grouped.some((e) => e.to.startsWith('ghost:')) && grouped.some((e) => e.from.startsWith('ghost:')));
+    const concern = { filtered: 4, uncertain: 3, intended: 2, default: 1 };
+    const memberColour = (m) => (m.edge.kind === 'uncertain' ? 'uncertain' : m.edge.isDefault ? 'default' : m.edge.intended ? 'intended' : 'filtered');
+    check('a grouped edge shows its most concerning member\'s colour', grouped.every((e) =>
+        concern[e.colour] === Math.max(...e.members.map((m) => concern[memberColour(m)]))));
+    check('grouped edges can\'t be checked', grouped.every((e) => !e.checked && !e.stale));
+    check('links to hidden devices can be switched off', !cb.buildModel(ex, { filter: hide, hiddenLinks: false }).nodes.some((n) => n.type === 'ghost'));
+    check('same-segment links to hidden devices get no ghost', !cb.buildModel(ex, { filter: { hiddenSegments: [], query: 'desktop' } }).edges
+        .some((e) => e.ghost && e.members.some((m) => segOf[m.node.id] === 'vtnet0')));
+    for (const mode of ['star', 'columns']) {
+        const m = cb.layout(cb.buildModel(ex, { filter: hide }), {}, mode);
+        const boxes = cb.segmentBoxes(m);
+        const g = m.nodes.filter((n) => n.type === 'ghost');
+        check(mode + ': ghosts sit outside every segment box', g.every((n) => boxes.every((b) =>
+            n.x >= b.x + b.w || n.x + n.w <= b.x || n.y >= b.y + b.h || n.y + n.h <= b.y)));
+        const r = cb.routeAll(m);
+        check(mode + ': every grouped edge is routed, nothing on top of anything', m.edges.every((e) => Array.isArray(r[e.id])) && clashes(r) === 0);
+        check(mode + ': ghost and grouped-edge tooltips build', g.concat(m.edges.filter((e) => e.ghost)).every((it) => cb.tooltipLines(m, it).length > 1));
+    }
+}
+
 // every node and edge has a tooltip, without throwing (This Firewall's once
 // referred to an undefined variable and threw on hover)
 check('tooltips build for every node and edge', (() => {

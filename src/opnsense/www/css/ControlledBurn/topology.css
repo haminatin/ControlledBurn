@@ -96,6 +96,10 @@
 .cb-node-icon path { fill: none; stroke: var(--cb-muted); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .cb-node-firewall .cb-node-icon path { stroke: var(--cb-firewall); }
 .cb-node-wan .cb-node-icon path { stroke: var(--cb-wan); }
+/* stand-in for a segment's devices hidden by the filter */
+.cb-node-ghost .cb-node-body { fill: transparent; stroke: var(--cb-muted); stroke-width: 1.2; stroke-dasharray: 4 4; filter: none; }
+.cb-node-ghost .cb-node-name { fill: var(--cb-muted); font-weight: 600; }
+.cb-node-ghost { cursor: pointer; }
 .cb-node-off .cb-node-body { fill: var(--cb-canvas); stroke-dasharray: 3 3; filter: none; }
 .cb-node-off .cb-node-name { fill: var(--cb-muted); }
 

@@ -864,7 +864,9 @@ yet.
 
 ### Open: UI ideas
 - **From the live box (2026-10-18), one at a time:**
-  1. **Links to hidden nodes** (in progress). When the filter hides devices,
+  1. **Links to hidden nodes** (built 2026-10-18; `buildModel` groups
+     them, `placeGhosts`, card lists members; "Links to hidden devices"
+     toggle on the page and in the demo). When the filter hides devices,
      each visible device still gets a link per hidden segment it reaches or
      is reached from. The link ends at a dashed "ghost" pill ("IoT · 4
      hidden") just outside its own segment's box. It takes the worst colour

@@ -28,6 +28,9 @@
     var COL_GAP = 130;
     var MAX_ROWS = 8;
     var HUB_SIZE = 128;        // the firewall and WAN nodes are squares
+    var GHOST_H = 40;          // stand-ins for a segment's hidden devices
+    var GHOST_MIN_W = 110;
+    var GHOST_GAP = 64;        // ...placed this far outside their segment box
     var STAR_GAP = 120;        // star layout: firewall to the boxes around it
 
     // 24x24 line icons, drawn with the node's text colour
@@ -286,6 +289,9 @@
 
     /**
      * opts.showUnfiltered: include same-segment edges (default true)
+     * opts.hiddenLinks: when the filter hides devices, keep a link from
+     *   each visible device to a "ghost" per hidden segment it reaches or
+     *   is reached from (default true)
      */
     function buildModel(graph, opts) {
         opts = opts || {};
@@ -330,17 +336,40 @@
                 node.ip = truncate(node.ip, Math.floor((HUB_SIZE - 12) / 6.6));
             }
             return node;
-        }).filter(function (node) {
+        });
+        var allById = {};
+        nodes.forEach(function (n) { allById[n.id] = n; });
+        nodes = nodes.filter(function (node) {
             return nodeVisible(node, filter);
         });
         var visible = {};
         nodes.forEach(function (n) { visible[n.id] = true; });
+        var hiddenLinks = opts.hiddenLinks !== false;
+        var ghostGroups = {};   // visible device + direction + ghost -> edges
 
         var edges = [];
         var seenUnfiltered = {};
         graph.edges.forEach(function (e) {
             if (!visible[e.from] || !visible[e.to]) {
-                return; // an end was filtered out
+                // an end was filtered out: a visible device keeps a link to
+                // a "ghost" standing in for that segment's hidden devices
+                var shown = visible[e.from] ? allById[e.from] : allById[e.to];
+                var gone = visible[e.from] ? allById[e.to] : allById[e.from];
+                if (hiddenLinks && e.kind !== 'unfiltered' && shown && gone && shown.type === 'device'
+                        && (visible[e.from] || visible[e.to])) {
+                    var ghostId = 'ghost:' + shown.segment + ':' + gone.segment;
+                    var out = shown.id === e.from;
+                    var key = shown.id + (out ? '>' : '<') + ghostId;
+                    (ghostGroups[key] = ghostGroups[key] || {
+                        from: out ? shown.id : ghostId,
+                        to: out ? ghostId : shown.id,
+                        ghostId: ghostId,
+                        ownSegment: shown.segment,
+                        hiddenSegment: gone.segment,
+                        members: []
+                    }).members.push({ node: gone, edge: e });
+                }
+                return;
             }
             if (e.kind === 'unfiltered') {
                 if (!showUnfiltered) {
@@ -374,6 +403,39 @@
             }, reviews));
         });
 
+        // one grouped edge per visible device, direction and ghost; one
+        // ghost per (visible segment, hidden segment)
+        var ghosts = {};
+        var segName = function (id) {
+            return interfaces[id] ? interfaces[id].descr : 'Unknown interface';
+        };
+        Object.keys(ghostGroups).forEach(function (key) {
+            var grp = ghostGroups[key];
+            if (!ghosts[grp.ghostId]) {
+                var hiddenCount = Object.keys(allById).filter(function (id) {
+                    return allById[id].type === 'device' && allById[id].segment === grp.hiddenSegment && !visible[id];
+                }).length;
+                var ghost = {
+                    id: grp.ghostId,
+                    type: 'ghost',
+                    name: segName(grp.hiddenSegment),
+                    ip: hiddenCount + ' hidden',
+                    segment: null,
+                    ownSegment: grp.ownSegment,
+                    hiddenSegment: grp.hiddenSegment,
+                    aliases: [],
+                    ipv6: [],
+                    evaluable: true,
+                    h: GHOST_H
+                };
+                ghost.nameShown = truncate(ghost.name, 18);
+                ghost.w = Math.round(Math.max(GHOST_MIN_W, Math.max(ghost.nameShown.length * 7.4, ghost.ip.length * 7.2) + 28));
+                ghosts[grp.ghostId] = ghost;
+                nodes.push(ghost);
+            }
+            edges.push(ghostEdge(grp, allById));
+        });
+
         var segments = ifOrder.filter(function (physical) {
             return nodes.some(function (n) { return n.segment === physical; });
         }).map(function (physical) {
@@ -384,6 +446,65 @@
         }
 
         return { nodes: nodes, edges: edges, segments: segments, rules: graph.rules || {} };
+    }
+
+    // how concerning an edge's colour is, for a grouped edge: it shows its
+    // most concerning member, never looking safer than any of them
+    var CONCERN = { filtered: 4, uncertain: 3, intended: 2, 'default': 1 };
+
+    /**
+     * The edge from a visible device to (or from) a ghost: what it reaches
+     * among one segment's hidden devices. Its ports are the members'
+     * together; its colour the most concerning member's. Members keep
+     * their own edges for the card. Can't be checked (check them with the
+     * segment shown).
+     */
+    function ghostEdge(grp, allById) {
+        var allowed = [];
+        var uncertain = false;
+        var colour = 'default';
+        var familiesAll = null;
+        var members = grp.members.map(function (m) {
+            var e = m.edge;
+            var kind = e.uncertain && !e.allowed.length ? 'uncertain' : 'filtered';
+            var c = kind === 'uncertain' ? 'uncertain' : e['default'] ? 'default' : e.intended ? 'intended' : 'filtered';
+            if (CONCERN[c] > CONCERN[colour]) {
+                colour = c;
+            }
+            allowed = allowed.concat(e.allowed || []);
+            uncertain = uncertain || !!e.uncertain;
+            var fam = e.allows_all || [];
+            familiesAll = familiesAll === null ? fam.slice() : familiesAll.filter(function (f) { return fam.indexOf(f) >= 0; });
+            return {
+                node: m.node,
+                edge: {
+                    id: 'f:' + e.from + '>' + e.to,
+                    from: e.from,
+                    to: e.to,
+                    kind: kind,
+                    allowed: e.allowed,
+                    uncertain: !!e.uncertain,
+                    uncertainRules: e.uncertain_rules || [],
+                    intended: !!e.intended,
+                    isDefault: !!e['default'],
+                    label: edgeLabel(e.allowed, e.uncertain, e.allows_all)
+                }
+            };
+        });
+        var allUncertain = members.every(function (m) { return m.edge.kind === 'uncertain'; });
+        return {
+            id: 'g:' + grp.from + '>' + grp.to,
+            from: grp.from,
+            to: grp.to,
+            ghost: true,
+            kind: allUncertain ? 'uncertain' : 'filtered',
+            colour: colour,
+            allowed: allowed,
+            uncertain: uncertain,
+            uncertainRules: [],
+            members: members,
+            label: edgeLabel(allowed, uncertain, familiesAll || [])
+        };
     }
 
     /**
@@ -594,11 +715,12 @@
         if (mode !== 'columns') {
             starPlace(model, byId);
             model.nodes.forEach(function (n) {
-                if (positions[n.id]) {
+                if (positions[n.id] && n.type !== 'ghost') {
                     n.x = positions[n.id].x - n.w / 2;
                     n.y = positions[n.id].y - n.h / 2;
                 }
             });
+            placeGhosts(model, mode, positions);
             return model;
         }
 
@@ -631,12 +753,67 @@
         }
 
         model.nodes.forEach(function (n) {
-            if (positions[n.id]) {
+            if (positions[n.id] && n.type !== 'ghost') {
                 n.x = positions[n.id].x - n.w / 2;
                 n.y = positions[n.id].y - n.h / 2;
             }
         });
+        placeGhosts(model, mode, positions);
         return model;
+    }
+
+    /**
+     * Ghosts (stand-ins for a segment's hidden devices) go just outside
+     * their own segment's box, on the side facing away from the firewall
+     * (below, in the columns layout), stacked if there are several. Placed
+     * after the devices, so they follow wherever the segment was dragged.
+     */
+    function placeGhosts(model, mode, positions) {
+        var ghosts = model.nodes.filter(function (n) { return n.type === 'ghost'; });
+        if (!ghosts.length) {
+            return;
+        }
+        var boxes = {};
+        segmentBoxes(model).forEach(function (b) { boxes[b.id] = b; });
+        var fw = model.nodes.filter(function (n) { return n.id === 'firewall'; })[0];
+        var fc = fw ? { x: fw.x + fw.w / 2, y: fw.y + fw.h / 2 } : { x: 0, y: 0 };
+        var bySegment = {};
+        ghosts.forEach(function (g) { (bySegment[g.ownSegment] = bySegment[g.ownSegment] || []).push(g); });
+        Object.keys(bySegment).forEach(function (seg) {
+            var box = boxes[seg];
+            var list = bySegment[seg];
+            if (!box) {
+                return;
+            }
+            var cx = box.x + box.w / 2;
+            var cy = box.y + box.h / 2;
+            var dx = cx - fc.x;
+            var dy = cy - fc.y;
+            var side = mode === 'columns' ? 'bottom'
+                : Math.abs(dx) >= Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : (dy < 0 ? 'top' : 'bottom');
+            var gap = 16;
+            if (side === 'left' || side === 'right') {
+                var y = cy - (list.reduce(function (t, g) { return t + g.h; }, 0) + gap * (list.length - 1)) / 2;
+                list.forEach(function (g) {
+                    g.x = side === 'left' ? box.x - GHOST_GAP - g.w : box.x + box.w + GHOST_GAP;
+                    g.y = y;
+                    y += g.h + gap;
+                });
+            } else {
+                var x = cx - (list.reduce(function (t, g) { return t + g.w; }, 0) + gap * (list.length - 1)) / 2;
+                list.forEach(function (g) {
+                    g.x = x;
+                    g.y = side === 'top' ? box.y - GHOST_GAP - g.h : box.y + box.h + GHOST_GAP;
+                    x += g.w + gap;
+                });
+            }
+        });
+        ghosts.forEach(function (g) {
+            if (positions[g.id]) {
+                g.x = positions[g.id].x - g.w / 2;
+                g.y = positions[g.id].y - g.h / 2;
+            }
+        });
     }
 
     /**
@@ -2183,6 +2360,22 @@
     function tooltipLines(model, item) {
         var byId = {};
         model.nodes.forEach(function (n) { byId[n.id] = n; });
+        if (item.kind && item.ghost) {
+            var ga = byId[item.from];
+            var gb = byId[item.to];
+            var glines = [(ga.type === 'ghost' ? ga.name + ' (hidden)' : ga.name) + ' → '
+                + (gb.type === 'ghost' ? gb.name + ' (hidden)' : gb.name)];
+            item.members.forEach(function (m) {
+                glines.push(truncate(m.node.name, TIP_RULE_CHARS) + ':  ' + truncate(m.edge.label || '?', TIP_RULE_CHARS));
+            });
+            glines.push('Devices hidden by the filter. Click the line for their rules.');
+            return glines;
+        }
+        if (item.type === 'ghost') {
+            return [item.name + ': ' + item.ip + ' by the filter',
+                'Lines here show what visible devices can reach there, or be reached from.',
+                'Click to show them.'];
+        }
         if (item.kind) {
             var a = byId[item.from].name;
             var b = byId[item.to].name;
@@ -2251,7 +2444,9 @@
      * and positions() (current node centres, for saving a layout).
      *
      * opts.showUnfiltered, opts.positions, opts.layout ('star' or
-     *   'columns'): see buildModel() / layout()
+     *   'columns'), opts.hiddenLinks: see buildModel() / layout()
+     * opts.onShowSegment: function(segmentId) to unhide a segment, from a
+     *   ghost (a filtered-out segment's stand-in) or a grouped edge's card
      * opts.theme: 'dark' (default for now) or 'light'
      * opts.ruleLink: function(label) -> URL to open a rule, or null
      * opts.reviews: {edgeId: fingerprint} saved audit sign-offs
@@ -2388,6 +2583,53 @@
             close.addEventListener('click', closeCard);
             head.appendChild(close);
 
+            var allowedRows = function (edge) {
+                var rows = ruleRows(model, edge, opts.ruleLink);
+                rows.allowed.forEach(function (r) {
+                    var item = div('cb-card-item', card);
+                    var portBox = div('cb-card-portbox', item);
+                    div('cb-card-port', portBox, r.ports);
+                    if (r.automatic) {
+                        div('cb-card-badge cb-badge-default', portBox, 'OPNsense default');
+                    } else {
+                        div('cb-card-badge ' + (r.intended ? 'cb-badge-intended' : 'cb-badge-broad'), portBox, r.intended ? 'explicit' : 'broad rule');
+                    }
+                    ruleLine(div('cb-card-rules', item), r);
+                });
+                if (!rows.allowed.length) {
+                    div('cb-card-note', card, 'Nothing definitely allowed.');
+                }
+                if (rows.uncertain.length) {
+                    var ub = div('cb-card-rules', card);
+                    div('cb-card-note', ub, 'Uncertain because of:');
+                    rows.uncertain.forEach(function (r) { ruleLine(ub, r); });
+                }
+            };
+            if (e.ghost) {
+                var ghostNode = byId[e.from].type === 'ghost' ? byId[e.from] : byId[e.to];
+                div('cb-card-note', card, ghostNode.ip + ' in ' + ghostNode.name + ' (hidden by the filter). Each one this reaches, or is reached from:');
+                e.members.forEach(function (m) {
+                    div('cb-card-section', card, m.node.name + (m.node.ip ? ' \u00b7 ' + m.node.ip : ''));
+                    allowedRows(m.edge);
+                });
+                if (typeof opts.onShowSegment === 'function') {
+                    var show = document.createElement('button');
+                    show.type = 'button';
+                    show.className = 'cb-card-check';
+                    show.textContent = 'Show ' + ghostNode.name;
+                    show.addEventListener('click', function () {
+                        closeCard();
+                        opts.onShowSegment(ghostNode.hiddenSegment);
+                    });
+                    card.appendChild(show);
+                }
+                div('cb-card-note', card, 'To mark these as checked, show the segment first.');
+                lastCardEvt = { clientX: evt.clientX, clientY: evt.clientY };
+                var gbox = container.getBoundingClientRect();
+                card.style.left = Math.max(8, Math.min(evt.clientX - gbox.left + 12, gbox.width - card.offsetWidth - 8)) + 'px';
+                card.style.top = Math.max(8, Math.min(evt.clientY - gbox.top + 12, gbox.height - card.offsetHeight - 8)) + 'px';
+                return;
+            }
             if (e.kind === 'unfiltered') {
                 div('cb-card-note', card, 'Same network segment: this traffic never crosses the firewall, so no rule can block it.');
             } else {
@@ -2791,6 +3033,8 @@
                 } else if (drag && !drag.moved && evt.shiftKey && typeof opts.onPairPick === 'function') {
                     // shift-click: pick nodes for the pair breakdown
                     opts.onPairPick(drag.node.id);
+                } else if (drag && !drag.moved && drag.node.type === 'ghost' && typeof opts.onShowSegment === 'function') {
+                    opts.onShowSegment(drag.node.hiddenSegment);
                 } else if (drag && !drag.moved) {
                     pin(sameTarget(pinned, drag.node.id) ? null : drag.node.id);
                 } else if (pan && !pan.moved && pan.edge) {

@@ -88,6 +88,11 @@ Beyond the basic graph, things you might not expect:
   style into parallel lanes that cross as little as possible. Choose star
   or columns layouts, drag nodes or whole segments, filter by device,
   segment or alias, and hide same-segment links.
+- **Filtering never hides access.** When the filter hides devices, each
+  visible device keeps a link to a dashed pill standing in for each hidden
+  segment it can reach, or be reached from ("IoT · 4 hidden"), coloured by
+  the most concerning of those links. Its card lists every hidden device
+  and its rules; click the pill to show the segment again.
 
 **Not covered (yet):**
 - Devices from Unbound host overrides, or DHCP leases from ISC DHCP or

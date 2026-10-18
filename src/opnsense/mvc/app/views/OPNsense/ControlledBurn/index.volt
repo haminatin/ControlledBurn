@@ -35,6 +35,9 @@
             <label style="font-weight: normal; margin-right: 1em;">
                 <input type="checkbox" id="cb-show-unfiltered" checked> {{ lang._('Show same-segment links') }}
             </label>
+            <label style="font-weight: normal; margin-right: 1em;" title="{{ lang._('When the filter hides devices, still show what visible devices can reach among them (and be reached from)') }}">
+                <input type="checkbox" id="cb-hidden-links" checked> {{ lang._('Links to hidden devices') }}
+            </label>
             <label style="font-weight: normal; margin-right: 1em;">
                 <input type="checkbox" id="cb-port-names"> {{ lang._('Port names') }}
             </label>
@@ -183,6 +186,35 @@
             }
         }
         var filter = loadFilter();
+
+        // links to filtered-out devices (per browser; on by default, so a
+        // filtered view never silently drops what a device can reach)
+        var HIDDEN_LINKS_KEY = 'controlledburn.hiddenLinks';
+        try {
+            $('#cb-hidden-links').prop('checked', window.localStorage.getItem(HIDDEN_LINKS_KEY) !== '0');
+        } catch (e) {
+            // keep the default
+        }
+        $('#cb-hidden-links').change(function () {
+            try {
+                window.localStorage.setItem(HIDDEN_LINKS_KEY, $(this).is(':checked') ? '1' : '0');
+            } catch (e) {
+                // a viewing convenience only
+            }
+            redraw();
+        });
+        // a ghost (or a grouped edge's card) asks to show its segment
+        function showSegment(segmentId) {
+            filter.hiddenSegments = filter.hiddenSegments.filter(function (id) { return id !== segmentId; });
+            if (filter.query) {
+                // the text filter may be what hides them
+                filter.query = '';
+                $('#cb-filter-query').val('');
+            }
+            saveFilter(filter);
+            renderSegmentFilters();
+            redraw();
+        }
         $('#cb-filter-query').val(filter.query);
 
         // port numbers vs service names (22 vs ssh), remembered per browser
@@ -343,7 +375,11 @@
         var MAX_DRAW_EDGES = 1000;
         var unfilteredChosen = false;   // the user ticked "show" themselves
         function edgeCount(showUnfiltered) {
-            return ControlledBurn.buildModel(graph, { showUnfiltered: showUnfiltered, filter: filter }).edges.length;
+            return ControlledBurn.buildModel(graph, {
+                showUnfiltered: showUnfiltered,
+                filter: filter,
+                hiddenLinks: $('#cb-hidden-links').is(':checked')
+            }).edges.length;
         }
 
         function draw() {
@@ -365,6 +401,8 @@
             }
             network = ControlledBurn.render(document.getElementById('cb-graph'), graph, {
                 showUnfiltered: box.is(':checked'),
+                hiddenLinks: $('#cb-hidden-links').is(':checked'),
+                onShowSegment: showSegment,
                 portNames: $('#cb-port-names').is(':checked'),
                 filter: filter,
                 positions: positions,
