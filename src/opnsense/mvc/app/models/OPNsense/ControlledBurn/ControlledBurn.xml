@@ -1,0 +1,55 @@
+<model>
+    <mount>//controlledburn</mount>
+    <description>ControlledBurn topology plugin settings</description>
+    <version>1.4.0</version>
+    <items>
+        <positions type="ArrayField">
+            <node_id type="TextField">
+                <Required>Y</Required>
+            </node_id>
+            <node_type type="OptionField">
+                <Required>Y</Required>
+                <OptionValues>
+                    <device>Device</device>
+                    <firewall>Firewall</firewall>
+                    <wan>WAN</wan>
+                    <!-- engine v1 node type; no longer produced, kept so
+                         layouts saved before v2 still validate -->
+                    <rule>Rule</rule>
+                </OptionValues>
+            </node_type>
+            <x type="IntegerField">
+                <Required>Y</Required>
+            </x>
+            <y type="IntegerField">
+                <Required>Y</Required>
+            </y>
+            <!-- which layout the position belongs to; positions saved
+                 before the star layout existed are columns positions.
+                 Not Required: older entries have none, and a failed
+                 validation would block every save (checks too) -->
+            <layout type="OptionField">
+                <Default>columns</Default>
+                <OptionValues>
+                    <columns>Columns</columns>
+                    <star>Star</star>
+                </OptionValues>
+            </layout>
+        </positions>
+        <!-- audit sign-offs: an edge the user has marked "checked", with a
+             fingerprint of what it allowed at the time; a changed
+             fingerprint means the rules moved on and the check lapses -->
+        <reviews type="ArrayField">
+            <edge_id type="TextField">
+                <Required>Y</Required>
+            </edge_id>
+            <fingerprint type="TextField">
+                <Required>Y</Required>
+                <Mask>/^[0-9a-f]{1,64}$/</Mask>
+            </fingerprint>
+            <!-- what the edge allowed when checked, for "changed since
+                 checked" display; free text, display only -->
+            <snapshot type="TextField"/>
+        </reviews>
+    </items>
+</model>

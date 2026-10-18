@@ -1,0 +1,48 @@
+# Runs every test suite on each push and pull request, and checks the demo
+# page matches the code. Uses only tools preinstalled on GitHub's Ubuntu
+# runners (PHP, Python 3, Node) and GitHub's own checkout action; read-only
+# token, no secrets.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Tool versions
+        run: |
+          php -v
+          python3 --version
+          node --version
+
+      - name: Rule engine
+        run: php tests/run_rule_engine_tests.php
+      - name: Topology controller (smoke)
+        run: php tests/smoke_topology_controller.php
+      - name: Testlab capture
+        run: php tests/test_testlab_capture.php
+      - name: Saved state (layout, checks)
+        run: php tests/test_state_controllers.php
+      - name: IoT scenario
+        run: php tests/test_scenario_iot.php
+      - name: Testlab IPv6
+        run: php tests/test_testlab_ipv6.php
+      - name: Testlab port forwards
+        run: php tests/test_testlab_nat.php
+      - name: Ruleset parser
+        run: python3 -I tests/test_get_ruleset.py
+      - name: Graph renderer
+        run: node tests/test_topology_js.js
+
+      - name: Demo page is up to date
+        run: python3 scripts/build_demo.py --check

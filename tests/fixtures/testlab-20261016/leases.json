@@ -1,0 +1,1 @@
+{"records":[{"expire":1792217643,"hwaddr":"bc:24:11:77:03:02","iaid":"","address":"192.168.77.20","hostname":"nas","client_id":"*","if":"vtnet0"},{"expire":1792213255,"hwaddr":"bc:24:11:00:ef:67","iaid":"","address":"192.168.77.191","hostname":"lab-dev01","client_id":"*","if":"vtnet0"}]}

@@ -1,0 +1,8 @@
+ControlledBurn renders an interactive topology graph of discovered devices and
+firewall rules, so you can visually audit which rule governs traffic to and
+from each device on your network.
+
+Devices are discovered from dnsmasq leases and DNS host overrides; firewall
+rules and their pass/block relationships to each device are discovered
+automatically from the active ruleset. Nodes are draggable and the layout can
+be filtered down to a chosen set of entities.

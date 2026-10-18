@@ -1,0 +1,16 @@
+no nat proto carp all
+nat on vtnet1 inet from (vtnet2:network) to any port = isakmp -> (vtnet1:0) static-port
+nat on vtnet1 inet from (vtnet0:network) to any port = isakmp -> (vtnet1:0) static-port
+nat on vtnet1 inet from (lo0:network) to any port = isakmp -> (vtnet1:0) static-port
+nat on vtnet1 inet from 127.0.0.0/8 to any port = isakmp -> (vtnet1:0) static-port
+nat on vtnet1 inet from (vtnet2:network) to any -> (vtnet1:0) port 1024:65535
+nat on vtnet1 inet from (vtnet0:network) to any -> (vtnet1:0) port 1024:65535
+nat on vtnet1 inet from (lo0:network) to any -> (vtnet1:0) port 1024:65535
+nat on vtnet1 inet from 127.0.0.0/8 to any -> (vtnet1:0) port 1024:65535
+no rdr proto carp all
+no rdr on vtnet0 proto tcp from any to (vtnet0) port = ssh
+no rdr on vtnet0 proto tcp from any to (vtnet0) port = http
+no rdr on vtnet0 proto tcp from any to (vtnet0) port = https
+rdr on vtnet1 inet proto tcp from any to (vtnet1) port = 8443 -> 192.168.77.20 port 443
+rdr pass on vtnet1 inet proto tcp from any to (vtnet1) port = 2222 -> 192.168.77.191 port 22
+

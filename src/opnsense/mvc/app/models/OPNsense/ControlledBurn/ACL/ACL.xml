@@ -1,0 +1,9 @@
+<acl>
+    <page-net-controlledburn>
+        <name>Firewall: ControlledBurn</name>
+        <patterns>
+            <pattern>ui/controlledburn/*</pattern>
+            <pattern>api/controlledburn/*</pattern>
+        </patterns>
+    </page-net-controlledburn>
+</acl>

@@ -1,0 +1,197 @@
+<!doctype html>
+<!--
+  ControlledBurn interactive demo. Template for scripts/build_demo.py, which
+  fills in the plugin's own topology.css / topology.js and the sample data
+  and writes docs/demo/index.html. Edit this file, not index.html.
+-->
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ControlledBurn demo</title>
+<meta name="description" content="Interactive demo of ControlledBurn, an OPNsense plugin that maps who can reach whom under your firewall rules. Sample data, runs entirely in your browser.">
+<style>
+:root { --bg: #0d1115; --surface: #171d23; --fg: #e3e8ec; --muted: #93a0ab; --line: #2c3640; --accent: #e0524d; color-scheme: dark; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; padding: 20px max(16px, 3vw); }
+.wrap { max-width: 1280px; margin: 0 auto; display: grid; gap: 12px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
+h1 { font-size: 1.25rem; margin: 0; }
+.crumb { color: var(--muted); font-size: .9rem; }
+a { color: #7fb6ff; }
+.note { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--accent); padding: 10px 14px; font-size: .9rem; border-radius: 6px; }
+.note p { margin: 0 0 .4em; }
+.note p:last-child { margin: 0; }
+.box { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 10px; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; justify-content: space-between; font-size: .85rem; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+select, button, input[type=search] { font: inherit; font-size: .85rem; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--fg); }
+select, button { cursor: pointer; }
+select { max-width: 100%; }
+label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+#cb-graph { height: min(72vh, 720px); border-radius: 10px; }
+#cb-pick-hint { position: absolute; left: 12px; bottom: 12px; padding: 6px 10px; border-radius: 6px; background: #1d242c; color: #e6ebef; border: 1px solid var(--line); font-size: .85rem; }
+.foot { color: var(--muted); font-size: .8rem; margin: 0; }
+%%CSS%%
+</style></head><body>
+<div class="wrap">
+  <header>
+    <h1>ControlledBurn</h1>
+    <span class="crumb">interactive demo &middot; <a href="https://github.com/haminatin/ControlledBurn">project on GitHub</a></span>
+  </header>
+  <div class="note">
+    <p><b>Who can reach whom, under the firewall rules you actually have loaded.</b>
+    ControlledBurn is an OPNsense plugin: it reads the live pf ruleset and your devices and draws what the rules
+    <i>allow</i>, not live traffic, so it also shows holes nobody is using yet.</p>
+    <p>This demo runs entirely in your browser with <b>sample data</b>: captures from an isolated test firewall and some
+    made-up networks. Nothing is sent anywhere. Try hovering and clicking edges, shift-clicking two nodes
+    (on the first dataset) for the full breakdown, dragging nodes or whole segments, and the Rule check bar.
+    In the <i>Five VLANs home lab</i>, see what the guests' "web only" rule really allows, and what else can reach
+    <b>This Firewall</b>.</p>
+  </div>
+  <div class="box">
+    <div class="bar">
+      <div class="legend">
+        <span><svg width="30" height="6"><line x1="2" y1="3" x2="28" y2="3" stroke="#4f9dff" stroke-width="2" stroke-linecap="round" stroke-dasharray="7 5"/></svg>Explicitly targeted by its rule</span>
+        <span><svg width="30" height="6"><line x1="2" y1="3" x2="28" y2="3" stroke="#ff8c33" stroke-width="2" stroke-linecap="round" stroke-dasharray="7 5"/></svg>Allowed by a broad rule: review</span>
+        <span><svg width="30" height="6"><line x1="2" y1="3" x2="28" y2="3" stroke="#b07cff" stroke-width="2" stroke-linecap="round" stroke-dasharray="7 5"/></svg>OPNsense default rules only</span>
+        <span><svg width="30" height="6"><line x1="2" y1="3" x2="28" y2="3" stroke="#3ecf8e" stroke-width="2" stroke-linecap="round" stroke-dasharray="7 5"/></svg>Checked by you</span>
+        <span><svg width="30" height="6"><line x1="2" y1="3" x2="28" y2="3" stroke="#e3b505" stroke-width="2" stroke-linecap="round" stroke-dasharray="7 5"/></svg>Possibly allowed (uncertain)</span>
+        <span><svg width="30" height="6"><line x1="2" y1="3" x2="28" y2="3" stroke="#6f7c88" stroke-width="2" stroke-linecap="round" stroke-dasharray="3 4"/></svg>Same segment: unfiltered</span>
+      </div>
+      <div class="controls">
+        <select id="cb-dataset" aria-label="Sample network">
+          <option value="port-forwards">Lab with IoT segment and port forwards (real capture)</option>
+          <option value="testlab">Single LAN with test rules (real capture)</option>
+          <option value="iot-mistake">IoT allow-all mistake: 1. the mistake</option>
+          <option value="iot-naive">IoT allow-all mistake: 2. naive fix</option>
+          <option value="iot-fixed">IoT allow-all mistake: 3. proper fix</option>
+          <option value="ipv6-bypass">IPv6 bypassing the IPv4 policy</option>
+          <option value="three-segments">LAN / IoT / Servers (made up)</option>
+          <option value="five-vlans">Five VLANs home lab (made up)</option>
+        </select>
+        <select id="cb-layout" aria-label="Layout"><option value="star">Star layout</option><option value="columns">Columns layout</option></select>
+        <label for="cb-show-unfiltered"><input type="checkbox" id="cb-show-unfiltered" checked> Same-segment links</label>
+        <label for="cb-port-names"><input type="checkbox" id="cb-port-names"> Port names</label>
+        <input id="cb-filter-query" type="search" placeholder="Filter devices" aria-label="Filter devices">
+        <button id="cb-fit" type="button">Fit</button>
+        <button id="cb-reset-layout" type="button">Reset layout</button>
+        <button id="cb-clear-checks" type="button">Clear all checks</button>
+      </div>
+    </div>
+    <div id="cb-findings"></div>
+    <div style="position:relative">
+      <div id="cb-graph"></div>
+      <div id="cb-breakdown" class="cb-breakdown" data-theme="dark" hidden></div>
+      <div id="cb-pick-hint" hidden></div>
+    </div>
+    <p class="foot">Hover nodes and edges for details; click an edge (or its label) for the rules behind it and to mark it checked;
+      click a node to keep its links highlighted; shift-click two nodes for everything allowed and blocked between them.
+      Drag nodes, or a segment by its box, to rearrange; drag the background to pan; scroll to zoom.
+      In the plugin, rule names link to the rule in Firewall &rsaquo; Rules.</p>
+  </div>
+</div>
+<script>
+%%JS%%</script>
+<script>
+(function () {
+  var data = %%DATA%%;
+  // precomputed full breakdowns (the plugin computes these on demand)
+  var pairData = %%PAIRS%%;
+  var reviews = {};      // checks, in memory only
+  var snapshots = {};
+  var positions = {};    // dataset -> layout -> node positions, in memory only
+  Object.keys(data).forEach(function (k) { reviews[k] = {}; snapshots[k] = {}; positions[k] = {}; });
+  // a seeded example: dtest -> This Firewall was checked before an imagined
+  // rule change, so it shows as "changed since checked"
+  reviews.testlab['f:device:192.168.77.42>firewall'] = 'deadbeef';
+  snapshots.testlab['f:device:192.168.77.42>firewall'] = 'tcp 22, 80, 443 — anti-lockout rule\nudp 67 — allow access to DHCP server';
+
+  var filter = { query: '', hiddenSegments: [] };
+  var handle = null;
+  var pickFrom = null;
+  var $ = function (id) { return document.getElementById(id); };
+  // in the plugin these open Firewall > Rules at the rule; inert here
+  var ruleLink = function (label) { return /^[0-9a-f]{8}-/.test(label) ? '#rule-' + label : null; };
+
+  function nodeName(ds, id) {
+    var n = data[ds].nodes.find(function (x) { return x.id === id; });
+    return n ? n.label.split('\n')[0] : id;
+  }
+  function openBreakdown(ds, src, dst) {
+    $('cb-pick-hint').hidden = true;
+    pickFrom = null;
+    var resp = (pairData[ds] || {})[src + '>' + dst]
+      || { status: 'failed', src: src, dst: dst, error_msg: 'in this demo the full breakdown is only included for the first sample network; the plugin computes it for any pair' };
+    ControlledBurn.renderBreakdown($('cb-breakdown'), resp, {
+      nodes: data[ds].nodes.map(function (n) { return { id: n.id, name: n.label.split('\n')[0] }; }),
+      nodeName: function (id) { return nodeName(ds, id); },
+      ruleLink: ruleLink,
+      onChange: function (a, b) { openBreakdown(ds, a, b); }
+    });
+  }
+  function pickNode(ds, id) {
+    if (pickFrom === null || pickFrom === id) {
+      pickFrom = id;
+      $('cb-pick-hint').textContent = nodeName(ds, id) + ' → shift-click a second node for the full breakdown';
+      $('cb-pick-hint').hidden = false;
+      return;
+    }
+    openBreakdown(ds, pickFrom, id);
+  }
+  function draw() {
+    if (handle) { handle.destroy(); handle = null; }
+    var ds = $('cb-dataset').value;
+    var lay = $('cb-layout').value;
+    var findings = null;
+    positions[ds][lay] = positions[ds][lay] || {};
+    function renderRuleCheck() {
+      return ControlledBurn.renderFindings($('cb-findings'), data[ds], {
+        stale: handle ? handle.staleChecks() : [],
+        ruleLink: ruleLink,
+        onHover: function (target) { if (handle) { handle.preview(target); } },
+        onSelect: function (target) { if (handle) { handle.togglePin(target); } }
+      });
+    }
+    handle = ControlledBurn.render($('cb-graph'), data[ds], {
+      filter: filter,
+      layout: lay,
+      portNames: $('cb-port-names').checked,
+      positions: positions[ds][lay],
+      snapshots: snapshots[ds],
+      reviews: reviews[ds],
+      onMove: function (centres) { Object.assign(positions[ds][lay], centres); },
+      onReview: function () { findings = renderRuleCheck(); },
+      showUnfiltered: $('cb-show-unfiltered').checked,
+      ruleLink: ruleLink,
+      onPinChange: function (key) { if (findings) { findings.setPinned(key); } },
+      onBreakdown: function (a, b) { openBreakdown(ds, a, b); },
+      onPairPick: function (id) { pickNode(ds, id); }
+    });
+    findings = renderRuleCheck();
+  }
+  ['cb-dataset', 'cb-layout', 'cb-show-unfiltered', 'cb-port-names'].forEach(function (id) {
+    $(id).addEventListener('change', draw);
+  });
+  $('cb-fit').addEventListener('click', function () { if (handle) { handle.fit(); } });
+  var qt = null;
+  $('cb-filter-query').addEventListener('input', function (e) {
+    clearTimeout(qt);
+    qt = setTimeout(function () { filter.query = e.target.value; draw(); }, 200);
+  });
+  $('cb-reset-layout').addEventListener('click', function () {
+    if (window.confirm('Move every node back to its default position?')) {
+      positions[$('cb-dataset').value][$('cb-layout').value] = {};
+      draw();
+    }
+  });
+  $('cb-clear-checks').addEventListener('click', function () {
+    var ds = $('cb-dataset').value;
+    if (window.confirm(Object.keys(reviews[ds]).length + ' checked edge(s) will go back to unchecked.')) {
+      reviews[ds] = {};
+      snapshots[ds] = {};
+      draw();
+    }
+  });
+  draw();
+})();
+</script>
+</body></html>

@@ -1,0 +1,309 @@
+/*
+ * ControlledBurn overview graph. Colours are custom properties so a host
+ * page or theme can override them on .cb-topology. Light values are the
+ * base; data-theme="dark" on the container (render()'s default for now)
+ * swaps in the dark set.
+ */
+.cb-topology {
+    --cb-canvas: #f6f7f9;
+    --cb-grid: #e3e6ea;
+    --cb-node: #ffffff;
+    --cb-node-border: #d5dae0;
+    --cb-text: #1f2a33;
+    --cb-muted: #6b7782;
+    --cb-segment: rgba(60, 110, 160, 0.05);
+    --cb-segment-border: #c9d3dd;
+    --cb-allowed: #e8710a;
+    --cb-uncertain: #b89100;
+    --cb-unfiltered: #9aa4ae;
+    --cb-firewall: #d64541;
+    --cb-firewall-fill: rgba(214, 69, 65, 0.13);
+    /* WAN: a hue no edge colour uses */
+    --cb-wan: #0f9fb8;
+    --cb-wan-fill: rgba(15, 159, 184, 0.11);
+    --cb-intended: #2f74c0;
+    --cb-default: #7b4fd6;
+    --cb-checked: #1f9d63;
+    --cb-label-bg: #ffffff;
+    --cb-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --cb-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    --cb-shadow: rgba(20, 30, 40, 0.10);
+    --cb-tip-bg: #1f2a33;
+    --cb-tip-fg: #f1f4f6;
+
+    position: relative;
+    overflow: hidden;
+    background-color: var(--cb-canvas);
+    background-image: radial-gradient(var(--cb-grid) 1px, transparent 1px);
+    background-size: 16px 16px;
+    font-family: var(--cb-font);
+    user-select: none;
+}
+
+.cb-topology[data-theme="dark"] {
+    --cb-canvas: #12171c;
+    --cb-grid: #222a32;
+    --cb-node: #1d242c;
+    --cb-node-border: #36414c;
+    --cb-text: #e6ebef;
+    --cb-muted: #93a0ab;
+    --cb-segment: rgba(110, 160, 210, 0.06);
+    --cb-segment-border: #33404c;
+    --cb-allowed: #ff8c33;
+    --cb-uncertain: #e3b505;
+    --cb-unfiltered: #6f7c88;
+    --cb-firewall: #e0524d;
+    --cb-firewall-fill: rgba(224, 82, 77, 0.20);
+    --cb-wan: #2cc4dd;
+    --cb-wan-fill: rgba(44, 196, 221, 0.13);
+    --cb-intended: #4f9dff;
+    --cb-default: #b07cff;
+    --cb-checked: #3ecf8e;
+    --cb-label-bg: #1d242c;
+    --cb-shadow: rgba(0, 0, 0, 0.45);
+    --cb-tip-bg: #f1f4f6;
+    --cb-tip-fg: #1f2a33;
+}
+
+.cb-svg { display: block; cursor: grab; touch-action: none; }
+.cb-svg.cb-panning { cursor: grabbing; }
+
+/* segments */
+.cb-segment { fill: var(--cb-segment); stroke: var(--cb-segment-border); stroke-width: 1; }
+.cb-segment, .cb-segment-label { cursor: grab; }
+.cb-panning .cb-segment, .cb-panning .cb-segment-label { cursor: grabbing; }
+.cb-segment-label { fill: var(--cb-muted); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+
+/* nodes */
+.cb-node { cursor: move; }
+.cb-node-body {
+    fill: var(--cb-node);
+    stroke: var(--cb-node-border);
+    stroke-width: 1;
+    filter: drop-shadow(0 1px 2px var(--cb-shadow)) drop-shadow(0 4px 10px var(--cb-shadow));
+    transition: stroke 120ms;
+}
+.cb-node:hover .cb-node-body { stroke: var(--cb-text); }
+.cb-node.cb-pinned .cb-node-body { stroke: var(--cb-text); stroke-width: 2; }
+.cb-node-firewall.cb-pinned .cb-node-body { stroke: var(--cb-text); }
+.cb-node-name { fill: var(--cb-text); font-size: 13px; font-weight: 600; text-anchor: middle; }
+.cb-node-ip { fill: var(--cb-muted); font-family: var(--cb-mono); font-size: 11.5px; text-anchor: middle; }
+/* firewall and WAN: tinted glass squares, coloured outline and icon
+   (no drop shadow: it would show through the translucent fill) */
+.cb-node-firewall .cb-node-body { fill: var(--cb-firewall-fill); stroke: var(--cb-firewall); stroke-width: 1.5; filter: none; }
+.cb-node-wan .cb-node-body { fill: var(--cb-wan-fill); stroke: var(--cb-wan); stroke-width: 1.5; stroke-dasharray: 5 4; filter: none; }
+.cb-node-firewall .cb-node-name, .cb-node-wan .cb-node-name { letter-spacing: 0.02em; }
+.cb-node-icon path { fill: none; stroke: var(--cb-muted); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.cb-node-firewall .cb-node-icon path { stroke: var(--cb-firewall); }
+.cb-node-wan .cb-node-icon path { stroke: var(--cb-wan); }
+.cb-node-off .cb-node-body { fill: var(--cb-canvas); stroke-dasharray: 3 3; filter: none; }
+.cb-node-off .cb-node-name { fill: var(--cb-muted); }
+
+/* edges: dashed lines whose dashes travel source -> destination */
+.cb-edge-hit { fill: none; stroke: transparent; stroke-width: 14; cursor: help; }
+.cb-edge-line {
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-dasharray: 9 7;
+    transition: opacity 120ms;
+}
+/* motion by kind, colour by audit state (cb-c-*) */
+.cb-edge-filtered .cb-edge-line { animation: cb-flow 1.6s linear infinite; }
+.cb-edge-uncertain .cb-edge-line { animation: cb-flow 4s linear infinite; }
+.cb-edge-unfiltered .cb-edge-line { stroke-dasharray: 4 5; }
+.cb-c-filtered { --cb-edge: var(--cb-allowed); }
+.cb-c-uncertain { --cb-edge: var(--cb-uncertain); }
+.cb-c-unfiltered { --cb-edge: var(--cb-unfiltered); }
+.cb-c-intended { --cb-edge: var(--cb-intended); }
+.cb-c-default { --cb-edge: var(--cb-default); }
+.cb-c-checked { --cb-edge: var(--cb-checked); }
+/* changed since checked: green line, amber "changed" label */
+.cb-c-stale { --cb-edge: var(--cb-checked); }
+.cb-label.cb-c-stale .cb-label-bg { stroke: var(--cb-uncertain); stroke-width: 1.5; stroke-dasharray: 3 2; }
+.cb-label.cb-c-stale .cb-label-text { fill: var(--cb-uncertain); }
+.cb-edge .cb-edge-line { stroke: var(--cb-edge); }
+/* one full dash period (9 + 7) per loop, so the motion is seamless */
+@keyframes cb-flow { to { stroke-dashoffset: -16; } }
+
+.cb-arrow { fill: none; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.cb-arrow-filtered { stroke: var(--cb-allowed); }
+.cb-arrow-uncertain { stroke: var(--cb-uncertain); }
+.cb-arrow-intended { stroke: var(--cb-intended); }
+.cb-arrow-default { stroke: var(--cb-default); }
+.cb-arrow-checked { stroke: var(--cb-checked); }
+.cb-arrow-stale { stroke: var(--cb-checked); }
+
+/* edge labels */
+.cb-label-bg { fill: var(--cb-label-bg); stroke: var(--cb-edge); stroke-width: 1; }
+.cb-label-text { fill: var(--cb-text); font-family: var(--cb-mono); font-size: 10px; text-anchor: middle; }
+/* where the label's own line meets its outline */
+.cb-label-dot { fill: var(--cb-edge); }
+
+/* hovering a node highlights its edges and fades the rest */
+.cb-focus .cb-edge .cb-edge-line, .cb-focus .cb-label { opacity: 0.15; }
+.cb-focus .cb-edge.cb-on .cb-edge-line, .cb-focus .cb-label.cb-on { opacity: 1; }
+/* a highlighted set (e.g. a dead rule's flows) also fades unrelated nodes */
+.cb-node { transition: opacity 120ms; }
+.cb-focus-set .cb-node { opacity: 0.3; }
+.cb-focus-set .cb-node.cb-on { opacity: 1; }
+.cb-edge:hover .cb-edge-line { stroke-width: 3; }
+
+/* tooltip */
+.cb-tip {
+    position: absolute;
+    max-width: 340px;
+    padding: 8px 10px;
+    background: var(--cb-tip-bg);
+    color: var(--cb-tip-fg);
+    border-radius: 8px;
+    font-size: 12px;
+    line-height: 1.45;
+    pointer-events: none;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
+    z-index: 5;
+}
+.cb-tip[hidden] { display: none; }
+.cb-tip-head { font-weight: 600; margin-bottom: 2px; }
+
+/* edge detail card (click an edge) */
+.cb-label, .cb-edge-hit { cursor: pointer; }
+.cb-card {
+    position: absolute;
+    width: 360px;
+    max-width: calc(100% - 16px);
+    max-height: calc(100% - 16px);
+    overflow-y: auto;
+    padding: 12px 14px;
+    background: var(--cb-node);
+    color: var(--cb-text);
+    border: 1px solid var(--cb-node-border);
+    border-radius: 12px;
+    box-shadow: 0 10px 30px var(--cb-shadow);
+    font-size: 12.5px;
+    line-height: 1.4;
+    z-index: 6;
+    user-select: text;
+}
+.cb-card-head { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+.cb-card-title { flex: 1; min-width: 0; font-weight: 600; font-size: 13.5px; overflow-wrap: anywhere; }
+.cb-card-close { border: 0; background: transparent; color: var(--cb-muted); font-size: 18px; line-height: 1; cursor: pointer; padding: 0 2px; }
+.cb-card-close:hover, .cb-card-close:focus-visible { color: var(--cb-text); }
+.cb-card-section { margin: 10px 0 4px; color: var(--cb-muted); font-size: 10.5px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; }
+.cb-card-item { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; align-items: start; padding: 6px 0; border-top: 1px solid var(--cb-node-border); }
+.cb-card-item:first-of-type { border-top: 0; }
+.cb-card-port { font-family: var(--cb-mono); font-size: 11.5px; color: var(--cb-allowed); max-width: 130px; overflow-wrap: anywhere; padding-top: 1px; }
+.cb-card-rules { display: grid; gap: 6px; min-width: 0; }
+.cb-card-rule { display: grid; gap: 2px; min-width: 0; }
+/* long rule names: two lines, then an ellipsis; full name on hover */
+.cb-card-rule-name { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.cb-card-link { color: var(--cb-allowed); font-size: 11.5px; text-decoration: none; font-weight: 600; justify-self: start; }
+.cb-card-link:hover, .cb-card-link:focus-visible { text-decoration: underline; }
+.cb-card-nolink { color: var(--cb-muted); font-size: 11px; }
+.cb-card-note { color: var(--cb-muted); margin-top: 6px; }
+.cb-card-stale { color: var(--cb-uncertain); }
+.cb-card-portbox { display: grid; gap: 3px; justify-items: start; }
+.cb-card-badge { font-size: 10px; font-weight: 600; letter-spacing: 0.04em; padding: 0 6px; border-radius: 8px; border: 1px solid currentColor; }
+.cb-badge-intended { color: var(--cb-intended); }
+.cb-badge-broad { color: var(--cb-allowed); }
+.cb-badge-default { color: var(--cb-default); }
+.cb-card-check {
+    margin-top: 12px; width: 100%; padding: 7px 10px; border-radius: 8px; cursor: pointer;
+    font: inherit; font-weight: 600; border: 1px solid var(--cb-checked);
+    background: transparent; color: var(--cb-checked);
+}
+.cb-card-check:hover, .cb-card-check:focus-visible { background: color-mix(in srgb, var(--cb-checked) 12%, transparent); }
+.cb-card-check.cb-is-checked { background: var(--cb-checked); color: var(--cb-node); }
+.cb-card-check.cb-card-secondary { border-color: var(--cb-node-border); color: var(--cb-muted); margin-top: 6px; }
+.cb-card-snapshot { white-space: pre-wrap; font-family: var(--cb-mono); font-size: 11px; color: var(--cb-muted); padding: 6px 8px; border: 1px dashed var(--cb-node-border); border-radius: 8px; overflow-wrap: anywhere; }
+
+/* dead-rule findings panel (above the graph) */
+.cb-findings {
+    --cb-f-bg: #ffffff; --cb-f-border: #d5dae0; --cb-f-text: #1f2a33; --cb-f-muted: #6b7782;
+    --cb-f-alert: #c0392b; --cb-f-info: #7a8794;
+    margin-bottom: 0.6em; padding: 8px 12px; border-radius: 10px;
+    background: var(--cb-f-bg); color: var(--cb-f-text); border: 1px solid var(--cb-f-border);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 12.5px;
+}
+.cb-findings[data-theme="dark"] {
+    --cb-f-bg: #1d242c; --cb-f-border: #36414c; --cb-f-text: #e6ebef; --cb-f-muted: #93a0ab;
+    --cb-f-alert: #ff6b5e; --cb-f-info: #93a0ab;
+}
+.cb-findings-alert { border-left: 4px solid var(--cb-f-alert); }
+.cb-findings-summary { cursor: pointer; font-weight: 600; }
+.cb-findings-alert > .cb-findings-summary { color: var(--cb-f-alert); }
+.cb-findings-list { display: grid; gap: 8px; margin-top: 8px; }
+.cb-finding { display: grid; gap: 2px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--cb-f-border); }
+.cb-finding-head { font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.cb-finding-contradicted .cb-finding-head { color: var(--cb-f-alert); }
+.cb-finding-redundant .cb-finding-head { color: var(--cb-f-info); }
+.cb-finding-stale .cb-finding-head { color: #e3b505; }
+.cb-finding-name { font-weight: 600; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.cb-finding-why { color: var(--cb-f-muted); overflow-wrap: anywhere; }
+.cb-finding-links { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.cb-findings .cb-card-link { color: var(--cb-f-alert); }
+.cb-finding-active { cursor: pointer; transition: border-color 120ms, background-color 120ms; }
+.cb-finding-active:hover { border-color: var(--cb-f-text); }
+.cb-finding-pinned { border-color: var(--cb-f-alert); background: color-mix(in srgb, var(--cb-f-alert) 8%, transparent); }
+.cb-finding-nomatch { color: var(--cb-f-muted); font-style: italic; }
+.cb-findings-auto { color: var(--cb-f-muted); }
+.cb-findings-auto > summary { cursor: pointer; }
+.cb-findings-auto .cb-finding { margin-top: 6px; }
+
+/* pair drill-down panel: slides over the right of the graph */
+.cb-breakdown {
+    --cb-b-bg: #ffffff; --cb-b-border: #d5dae0; --cb-b-text: #1f2a33; --cb-b-muted: #6b7782;
+    --cb-b-pass: #1f9d63; --cb-b-block: #c0392b;
+    position: absolute; top: 0; right: 0; bottom: 0; width: 460px; max-width: 100%;
+    overflow-y: auto; padding: 12px 14px; z-index: 7;
+    background: var(--cb-b-bg); color: var(--cb-b-text); border-left: 1px solid var(--cb-b-border);
+    box-shadow: -10px 0 30px rgba(0, 0, 0, 0.25);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 12.5px; line-height: 1.4;
+}
+.cb-breakdown[data-theme="dark"] {
+    --cb-b-bg: #1d242c; --cb-b-border: #36414c; --cb-b-text: #e6ebef; --cb-b-muted: #93a0ab;
+    --cb-b-pass: #3ecf8e; --cb-b-block: #ff6b5e;
+}
+.cb-breakdown[hidden] { display: none; }
+.cb-breakdown .cb-card-close { color: var(--cb-b-muted); }
+.cb-breakdown .cb-card-section { color: var(--cb-b-muted); }
+.cb-breakdown .cb-card-note { color: var(--cb-b-muted); margin: 6px 0; }
+.cb-bd-head { display: flex; align-items: center; gap: 8px; }
+.cb-bd-title { flex: 1; font-weight: 700; font-size: 14px; }
+.cb-bd-picks { display: grid; grid-template-columns: 1fr auto 1fr; gap: 6px; margin: 10px 0; align-items: center; }
+/* OPNsense's theme gives every <select> a caret background image
+   (!important, with background-repeat: no-repeat). Our own earlier
+   `background:` shorthand reset background-repeat to repeat but couldn't
+   remove the !important image, so the caret tiled into rows of arrows (our
+   bug, not the theme's). Opt out of the theme's image explicitly
+   (class + !important) and use the native arrow. */
+.cb-breakdown .cb-bd-select {
+    width: 100%; min-width: 0; max-width: none; height: auto; font: inherit; padding: 4px 6px; border-radius: 6px;
+    border: 1px solid var(--cb-b-border) !important;
+    background: var(--cb-b-bg) !important;
+    background-image: none !important;
+    color: var(--cb-b-text) !important;
+    -webkit-appearance: menulist !important; -moz-appearance: menulist !important; appearance: auto !important;
+}
+.cb-bd-swap { font: inherit; border: 1px solid var(--cb-b-border); background: transparent; color: var(--cb-b-text);
+    border-radius: 6px; cursor: pointer; padding: 3px 8px; }
+.cb-bd-pair { font-weight: 600; margin-bottom: 4px; overflow-wrap: anywhere; }
+.cb-bd-forward { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; margin: 2px 0; }
+.cb-bd-table { display: grid; gap: 2px; }
+.cb-bd-row { display: grid; grid-template-columns: 7.5em 4.8em 1fr; gap: 2px 8px; padding: 5px 6px;
+    border-radius: 6px; border-left: 3px solid transparent; }
+.cb-bd-pass { border-left-color: var(--cb-b-pass); }
+.cb-bd-block { border-left-color: var(--cb-b-block); }
+.cb-bd-ports { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; overflow-wrap: anywhere; }
+.cb-bd-pass .cb-bd-verdict { color: var(--cb-b-pass); font-weight: 600; }
+.cb-bd-block .cb-bd-verdict { color: var(--cb-b-block); font-weight: 600; }
+.cb-bd-rule { min-width: 0; display: flex; flex-wrap: wrap; gap: 2px 6px; align-items: baseline; }
+.cb-bd-rule-name { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; color: inherit; }
+a.cb-bd-rule-name { text-decoration: underline dotted; }
+.cb-bd-muted { color: var(--cb-b-muted); }
+.cb-bd-where { grid-column: 3; color: var(--cb-b-muted); font-size: 11px; }
+.cb-bd-note { grid-column: 1 / -1; color: var(--cb-b-muted); font-size: 11px; }
+
+@media (prefers-reduced-motion: reduce) {
+    .cb-edge-line { animation: none !important; }
+}

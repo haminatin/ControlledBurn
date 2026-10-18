@@ -1,0 +1,5 @@
+<menu>
+    <Firewall>
+        <ControlledBurn VisibleName="ControlledBurn" url="/ui/controlledburn" cssClass="fa fa-sitemap fa-fw" />
+    </Firewall>
+</menu>

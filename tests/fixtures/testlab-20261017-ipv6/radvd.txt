@@ -1,0 +1,40 @@
+# cat /var/etc/radvd.conf
+# Automatically generated, do not edit
+# Generated RADVD config for manual assignment on opt1
+interface vtnet2 {
+    AdvSendAdvert on;
+    MinRtrAdvInterval 200;
+    MaxRtrAdvInterval 600;
+    AdvLinkMTU 1500;
+    AdvCurHopLimit 64;
+    AdvDefaultPreference medium;
+    RemoveAdvOnExit on;
+    prefix fd00:88::/64 {
+        DeprecatePrefix on;
+        AdvOnLink on;
+        AdvAutonomous on;
+    };
+    RDNSS fd00:88::1 {
+    };
+    DNSSL home.arpa {
+    };
+};
+# Generated RADVD config for manual assignment on lan
+interface vtnet0 {
+    AdvSendAdvert on;
+    MinRtrAdvInterval 200;
+    MaxRtrAdvInterval 600;
+    AdvLinkMTU 1500;
+    AdvCurHopLimit 64;
+    AdvDefaultPreference medium;
+    RemoveAdvOnExit on;
+    prefix fd00:77::/64 {
+        DeprecatePrefix on;
+        AdvOnLink on;
+        AdvAutonomous on;
+    };
+    RDNSS fd00:77::1 {
+    };
+    DNSSL home.arpa {
+    };
+};
