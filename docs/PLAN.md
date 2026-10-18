@@ -863,6 +863,23 @@ yet.
   covered only by a union of earlier rules.
 
 ### Open: UI ideas
+- **From the live box (2026-10-18), one at a time:**
+  1. **Links to hidden nodes** (in progress). When the filter hides devices,
+     each visible device still gets a link per hidden segment it reaches or
+     is reached from. The link ends at a dashed "ghost" pill ("IoT · 4
+     hidden") just outside its own segment's box. It takes the worst colour
+     of what it groups, and its card lists each hidden device with its own
+     ports and rules. Clicking the pill can unhide the segment. No ✕
+     marker, which would read as "blocked". A toggle, on by default.
+  2. **Edges never pass under WAN, This Firewall or a segment box.** They
+     go round, so nothing is ambiguous. Segment boxes become obstacles for
+     edges that don't start or end inside them.
+  3. **Edges keep off segment names.** Edges currently run through the
+     labels, which makes them hard to read. The label strip becomes an
+     obstacle for routes and for edge tags.
+  4. **Auto-size busy nodes.** A node with many edges overspilled its sides
+     on the live box. Grow the node so each side holds its lanes at
+     LANE_GAP (route, measure each side, resize, route again).
 - **"Highway" edge bundling** (idea, 2026-10-17): **built** as lanes,
   see §UI Edges. Still open: thinning repeated identical labels (e.g. many
   "tcp/any, udp/any, icmp +1" from broad rules), seen in the Milestone 8

@@ -2224,7 +2224,7 @@
             return lines;
         }
         if (item.type === 'firewall') {
-            return ['This Firewall' + (n.ip ? ' (' + n.ip + ')' : ''), 'Arrows into this node: what devices can reach on the firewall itself (GUI, SSH, DNS, ...).'];
+            return ['This Firewall' + (item.ip ? ' (' + item.ip + ')' : ''), 'Arrows into this node: what devices can reach on the firewall itself (GUI, SSH, DNS, ...).'];
         }
         if (item.type === 'wan') {
             return item.evaluable
@@ -2889,6 +2889,7 @@
         squirclePath: squirclePath,
         labelPoint: labelPoint,
         labelDots: labelDots,
+        tooltipLines: tooltipLines,
         formatAllowed: formatAllowed,
         edgeLabel: edgeLabel
     };

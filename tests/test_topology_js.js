@@ -361,6 +361,16 @@ check('example (columns): at most 75 crossings, nothing on top of anything', cb.
 }
 check('example: no runs within 2px of another edge', clashes(exRoutes) === 0);
 
+// every node and edge has a tooltip, without throwing (This Firewall's once
+// referred to an undefined variable and threw on hover)
+check('tooltips build for every node and edge', (() => {
+    const withHost = cb.layout(cb.buildModel(Object.assign({}, require(path.join(__dirname, 'fixtures', 'example_graph.json')), { hostname: 'fw.example' })));
+    return withHost.nodes.concat(withHost.edges).every((item) => {
+        const lines = cb.tooltipLines(withHost, item);
+        return Array.isArray(lines) && lines.length > 0 && lines.every((l) => typeof l === 'string');
+    }) && cb.tooltipLines(withHost, withHost.nodes.find((n) => n.id === 'firewall'))[0] === 'This Firewall (fw.example)';
+})());
+
 const labels = Object.values(cb.placeLabels(example, exRoutes));
 const overlaps = (a, b) => Math.min(a.x + a.w, b.x + b.w) > Math.max(a.x, b.x) && Math.min(a.y + a.h, b.y + b.h) > Math.max(a.y, b.y);
 check('example: every labelled edge gets a label', labels.length === example.edges.filter((e) => e.label).length);
