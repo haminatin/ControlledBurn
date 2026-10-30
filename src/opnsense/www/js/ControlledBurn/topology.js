@@ -34,6 +34,7 @@
     var HUB_MIN = 3;           // "group by rule": a rule needs this many edges for a hub
     var HUB_IMPACT = 6;        // ...or this many from or to one node, to mark its reach
     var BOX_MARGIN = 6;        // edges keep this far outside other segments' boxes
+    var LIVE_ROUTE_MS = 40;    // routing slower than this: re-route a drag only on drop
     var STAR_GAP = 120;        // star layout: firewall to the boxes around it
 
     // 24x24 line icons, drawn with the node's text colour
@@ -2828,6 +2829,8 @@
         var gSegments = el('g', {}, viewport);
         var gEdges = el('g', {}, viewport);
         var gLabels = el('g', {}, viewport);
+        // straight stand-in lines while a drag defers routing
+        var gPreview = el('g', { 'class': 'cb-drag-preview' }, viewport);
         var gNodes = el('g', {}, viewport);
 
         var tip = document.createElement('div');
@@ -3145,11 +3148,15 @@
         var edgeEls = {};
         var routes = {};
         var labelBoxes = {};
+        var lastRouteMs = 0;
         function drawEdges() {
             gEdges.textContent = '';
             gLabels.textContent = '';
+            gPreview.textContent = '';
             edgeEls = {};
+            var started = Date.now();
             routes = routeAll(model);
+            lastRouteMs = Date.now() - started;
             labelBoxes = placeLabels(model, routes);
             model.edges.forEach(function (e) {
                 var pts = routes[e.id];
@@ -3376,13 +3383,22 @@
                         it.n.el.setAttribute('transform', 'translate(' + it.n.x + ',' + it.n.y + ')');
                     }
                 });
+                if (!drag.moved) {
+                    // slow routing (a busy graph): don't re-route on every
+                    // frame of the drag, only once it's dropped
+                    drag.deferred = lastRouteMs > LIVE_ROUTE_MS;
+                }
                 drag.moved = true;
                 hideTip();
                 if (!frame) {
                     frame = requestAnimationFrame(function () {
                         frame = null;
                         drawSegments();
-                        drawEdges();
+                        if (drag && drag.deferred) {
+                            dragPreview();
+                        } else {
+                            drawEdges();
+                        }
                     });
                 }
             } else if (pan) {
@@ -3395,7 +3411,44 @@
                 applyView();
             }
         });
+        // while a deferred drag lasts: the dragged nodes' edges are hidden
+        // and stood in for by straight lines between node centres; every
+        // other edge keeps its route
+        function dragPreview() {
+            var moving = {};
+            drag.items.forEach(function (it) { moving[it.n.id] = true; });
+            gPreview.textContent = '';
+            model.edges.forEach(function (e) {
+                if (!moving[e.from] && !moving[e.to]) {
+                    return;
+                }
+                var parts = edgeEls[e.id];
+                if (parts) {
+                    parts.g.style.display = 'none';
+                    if (parts.label) {
+                        parts.label.style.display = 'none';
+                    }
+                }
+                var a = byId[e.from];
+                var b = byId[e.to];
+                if (a && b) {
+                    var line = el('g', { 'class': 'cb-edge cb-c-' + e.colour }, gPreview);
+                    el('path', {
+                        d: 'M' + (a.x + a.w / 2) + ',' + (a.y + a.h / 2) + ' L' + (b.x + b.w / 2) + ',' + (b.y + b.h / 2),
+                        'class': 'cb-edge-line'
+                    }, line);
+                }
+            });
+        }
         function endPointer(evt) {
+            if (drag && drag.moved && drag.deferred) {
+                if (frame) {
+                    cancelAnimationFrame(frame);
+                    frame = null;
+                }
+                drawSegments();
+                drawEdges();
+            }
             if (drag && drag.moved && typeof opts.onMove === 'function') {
                 opts.onMove(positions());
             }

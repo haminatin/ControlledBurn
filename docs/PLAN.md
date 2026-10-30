@@ -915,6 +915,12 @@ yet.
         the rule and shows the count; its card lists every pair. Edges with
         several rules stay individual. A toggle switches back to
         individual edges.
+  8. **Smooth dragging on busy graphs** (built 2026-10-30). Dragging
+     re-routed every edge on every frame. Now, when the last routing took
+     over LIVE_ROUTE_MS (40ms), a drag moves nodes and boxes live, shows the
+     dragged nodes' edges as straight dashed stand-ins (the rest keep their
+     routes) and routes once on drop. Fast (small) graphs still re-route
+     live. Exercised in jsdom (devtools `jsdom/run_drag.js`).
   7. **Show block rules** (idea 2026-10-30). An ✕ pill per explicit block
      rule that decides at least one pair and port (e.g. "Block IoT to LAN ·
      8 pairs"), outside its sources' segment, with a line from each source

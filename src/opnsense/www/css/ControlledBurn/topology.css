@@ -118,6 +118,8 @@
 }
 /* motion by kind, colour by audit state (cb-c-*) */
 .cb-edge-filtered .cb-edge-line { animation: cb-flow 1.6s linear infinite; }
+/* stand-in lines while a busy graph is dragged (routed again on drop) */
+.cb-drag-preview .cb-edge-line { stroke-dasharray: 2 6; opacity: 0.75; animation: none; pointer-events: none; }
 .cb-edge-uncertain .cb-edge-line { animation: cb-flow 4s linear infinite; }
 .cb-edge-unfiltered .cb-edge-line { stroke-dasharray: 4 5; }
 .cb-c-filtered { --cb-edge: var(--cb-allowed); }
