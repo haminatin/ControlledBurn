@@ -387,7 +387,7 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
         </select>
         <select id="cb-layout" aria-label="Layout"><option value="star">Star layout</option><option value="columns">Columns layout</option></select>
         <label for="cb-show-unfiltered"><input type="checkbox" id="cb-show-unfiltered" checked> Same-segment links</label>
-        <label for="cb-group-rule" title="Merge the edges that one rule produces entirely into a hub for that rule. A rule gets a hub only when it produces at least 3 such edges and the hub draws fewer lines than the edges it replaces; otherwise its edges stay individual. Edges that several rules allow always stay individual."><input type="checkbox" id="cb-group-rule"> Group by rule</label>
+        <label for="cb-group-rule" title="Merge the edges that one rule produces entirely into a hub for that rule. A rule gets a hub when it produces at least 3 such edges and the hub draws fewer lines than the edges it replaces, or when it produces 6 or more from or to a single node (one device, or one hidden segment); otherwise its edges stay individual. Edges that several rules allow always stay individual."><input type="checkbox" id="cb-group-rule"> Group by rule</label>
         <label for="cb-hidden-links" title="When segments are hidden, still show what visible devices can reach among them"><input type="checkbox" id="cb-hidden-links" checked> Links to hidden devices</label>
         <label for="cb-port-names"><input type="checkbox" id="cb-port-names"> Port names</label>
         <input id="cb-filter-query" type="search" placeholder="Filter devices" aria-label="Filter devices">
@@ -444,8 +444,9 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
     var GHOST_H = 40;          // stand-ins for a segment's hidden devices
     var GHOST_MIN_W = 110;
     var GHOST_GAP = 64;        // ...placed this far outside their segment box
-    var HUB_MIN = 3;
-    var BOX_MARGIN = 6;        // edges keep this far outside other segments' boxes           // "group by rule": a rule needs this many edges for a hub
+    var HUB_MIN = 3;           // "group by rule": a rule needs this many edges for a hub
+    var HUB_IMPACT = 6;        // ...or this many from or to one node, to mark its reach
+    var BOX_MARGIN = 6;        // edges keep this far outside other segments' boxes
     var STAR_GAP = 120;        // star layout: firewall to the boxes around it
 
     // 24x24 line icons, drawn with the node's text colour
@@ -879,7 +880,9 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
      * "Group by rule" view: edges whose every allowed flow comes from one
      * and the same rule merge through a hub for that rule (sources -> hub
      * -> destinations), when the rule produces at least HUB_MIN of them
-     * and the hub draws fewer lines than the edges it replaces. A link to
+     * and the hub draws fewer lines than the edges it replaces, or at
+     * least HUB_IMPACT of them from or to a single node (a big reach worth
+     * marking, for at most two extra lines). A link to
      * hidden devices joins when every hidden pair it stands for comes
      * from that rule (the hub then leads to the ghost). Edges allowed by
      * several rules, uncertain-only edges and same-segment links stay as
@@ -916,9 +919,15 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
             var srcSet = {};
             var dstSet = {};
             list.forEach(function (e) { srcSet[e.from] = true; dstSet[e.to] = true; });
-            // a hub replaces pairs with sources + destinations lines: only
-            // worth it when that's fewer (3 devices -> 1 isn't, 3 -> 14 is)
-            if (list.length < HUB_MIN || Object.keys(srcSet).length + Object.keys(dstSet).length >= list.length) {
+            // a hub replaces these lines with sources + destinations lines:
+            // worth it when that's fewer (3 devices -> 14 is, 3 -> 1 isn't),
+            // or, as a marker of a big reach, when one rule makes at least
+            // HUB_IMPACT lines from or to a single node (one device, or a
+            // hidden segment, whose pill is drawn once per visible segment)
+            // for at most two lines more
+            var hubLines = Object.keys(srcSet).length + Object.keys(dstSet).length;
+            if (list.length < HUB_MIN
+                    || (hubLines >= list.length && !(list.length >= HUB_IMPACT && hubLines <= list.length + 2))) {
                 return;
             }
             var hubId = 'rule:' + label;

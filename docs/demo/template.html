@@ -70,7 +70,7 @@ label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
         </select>
         <select id="cb-layout" aria-label="Layout"><option value="star">Star layout</option><option value="columns">Columns layout</option></select>
         <label for="cb-show-unfiltered"><input type="checkbox" id="cb-show-unfiltered" checked> Same-segment links</label>
-        <label for="cb-group-rule" title="Merge the edges that one rule produces entirely into a hub for that rule. A rule gets a hub only when it produces at least 3 such edges and the hub draws fewer lines than the edges it replaces; otherwise its edges stay individual. Edges that several rules allow always stay individual."><input type="checkbox" id="cb-group-rule"> Group by rule</label>
+        <label for="cb-group-rule" title="Merge the edges that one rule produces entirely into a hub for that rule. A rule gets a hub when it produces at least 3 such edges and the hub draws fewer lines than the edges it replaces, or when it produces 6 or more from or to a single node (one device, or one hidden segment); otherwise its edges stay individual. Edges that several rules allow always stay individual."><input type="checkbox" id="cb-group-rule"> Group by rule</label>
         <label for="cb-hidden-links" title="When segments are hidden, still show what visible devices can reach among them"><input type="checkbox" id="cb-hidden-links" checked> Links to hidden devices</label>
         <label for="cb-port-names"><input type="checkbox" id="cb-port-names"> Port names</label>
         <input id="cb-filter-query" type="search" placeholder="Filter devices" aria-label="Filter devices">

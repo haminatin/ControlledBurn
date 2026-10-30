@@ -442,6 +442,25 @@ check('example: no runs within 2px of another edge', clashes(exRoutes) === 0);
     check('links to hidden devices join their rule\'s hub, which leads to the ghost',
         !!lh && lanOnly.edges.some((e) => e.from === lh.id && e.to.startsWith('ghost:')) && lh.ip.startsWith('18 pairs'));
 
+    // the reverse: one node (or one hidden segment's pill) -> 6+ via one rule
+    // costs one extra line, but marks a big reach, so it gets a hub too
+    const g2 = JSON.parse(JSON.stringify(g));
+    g2.rules.mgmt = { descr: 'Servers manage everything' };
+    others.concat(['l1']).forEach((d) => g2.edges.push({ from: 'srv', to: d, kind: 'filtered', allowed: allow(['mgmt'], { from: 22, to: 22 }), uncertain: false, uncertain_rules: [] }));
+    const fan = cb.buildModel(g2, { groupByRule: true });
+    check('one device -> 6 through one rule gets a hub (a reach worth marking)', fan.nodes.some((n) => n.rule === 'mgmt'));
+    const hiddenSrc = cb.buildModel(g2, { groupByRule: true, filter: { hiddenSegments: ['vtnet2'], query: '' } });
+    const mh = hiddenSrc.nodes.find((n) => n.rule === 'mgmt');
+    check('rule on a hidden segment reaching 6 visible devices: hub fed by the ghost', !!mh
+        && hiddenSrc.edges.some((e) => e.to === mh.id && e.from.startsWith('ghost:'))
+        && hiddenSrc.edges.filter((e) => e.from === mh.id).length === 6);
+    check('a 3 -> 1 rule still gets no hub', !fan.nodes.some((n) => n.rule === 'smb'));
+    for (const mode of ['star', 'columns']) {
+        const m = cb.layout(hiddenSrc, {}, mode);
+        const r = cb.routeAll(m);
+        check(mode + ': hidden-source hub routed, nothing on top of anything', m.edges.every((e) => Array.isArray(r[e.id])) && clashes(r) === 0);
+    }
+
     for (const mode of ['star', 'columns']) {
         const m = cb.layout(cb.buildModel(g, { groupByRule: true }), {}, mode);
         const hub = m.nodes.find((n) => n.type === 'rulehub');

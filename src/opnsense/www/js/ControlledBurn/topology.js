@@ -31,8 +31,9 @@
     var GHOST_H = 40;          // stand-ins for a segment's hidden devices
     var GHOST_MIN_W = 110;
     var GHOST_GAP = 64;        // ...placed this far outside their segment box
-    var HUB_MIN = 3;
-    var BOX_MARGIN = 6;        // edges keep this far outside other segments' boxes           // "group by rule": a rule needs this many edges for a hub
+    var HUB_MIN = 3;           // "group by rule": a rule needs this many edges for a hub
+    var HUB_IMPACT = 6;        // ...or this many from or to one node, to mark its reach
+    var BOX_MARGIN = 6;        // edges keep this far outside other segments' boxes
     var STAR_GAP = 120;        // star layout: firewall to the boxes around it
 
     // 24x24 line icons, drawn with the node's text colour
@@ -466,7 +467,9 @@
      * "Group by rule" view: edges whose every allowed flow comes from one
      * and the same rule merge through a hub for that rule (sources -> hub
      * -> destinations), when the rule produces at least HUB_MIN of them
-     * and the hub draws fewer lines than the edges it replaces. A link to
+     * and the hub draws fewer lines than the edges it replaces, or at
+     * least HUB_IMPACT of them from or to a single node (a big reach worth
+     * marking, for at most two extra lines). A link to
      * hidden devices joins when every hidden pair it stands for comes
      * from that rule (the hub then leads to the ghost). Edges allowed by
      * several rules, uncertain-only edges and same-segment links stay as
@@ -503,9 +506,15 @@
             var srcSet = {};
             var dstSet = {};
             list.forEach(function (e) { srcSet[e.from] = true; dstSet[e.to] = true; });
-            // a hub replaces pairs with sources + destinations lines: only
-            // worth it when that's fewer (3 devices -> 1 isn't, 3 -> 14 is)
-            if (list.length < HUB_MIN || Object.keys(srcSet).length + Object.keys(dstSet).length >= list.length) {
+            // a hub replaces these lines with sources + destinations lines:
+            // worth it when that's fewer (3 devices -> 14 is, 3 -> 1 isn't),
+            // or, as a marker of a big reach, when one rule makes at least
+            // HUB_IMPACT lines from or to a single node (one device, or a
+            // hidden segment, whose pill is drawn once per visible segment)
+            // for at most two lines more
+            var hubLines = Object.keys(srcSet).length + Object.keys(dstSet).length;
+            if (list.length < HUB_MIN
+                    || (hubLines >= list.length && !(list.length >= HUB_IMPACT && hubLines <= list.length + 2))) {
                 return;
             }
             var hubId = 'rule:' + label;

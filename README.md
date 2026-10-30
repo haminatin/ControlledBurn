@@ -92,9 +92,11 @@ Beyond the basic graph, things you might not expect:
 - **See a rule's reach.** **Group by rule** merges the edges one rule
   produces on its own into a hub for that rule ("Default allow LAN to any
   · 42 pairs · any"), so one broad rule with a huge impact stands out and
-  its dozens of lines collapse into a few. A hub appears only where it
-  draws fewer lines than it replaces; edges several rules allow stay
-  individual. Its card lists every pair. Off by default.
+  its dozens of lines collapse into a few. A hub appears where it draws
+  fewer lines than it replaces, or where one rule reaches 6 or more
+  nodes from a single one (one device, or a hidden segment); edges
+  several rules allow stay individual. Its card lists every pair. Off
+  by default.
 - **Filtering never hides access.** When the filter hides devices, each
   visible device keeps a link to a dashed pill standing in for each hidden
   segment it can reach, or be reached from ("IoT · 4 hidden"), coloured by

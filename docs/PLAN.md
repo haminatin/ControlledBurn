@@ -905,8 +905,10 @@ yet.
         dead rules); clicking a rule name in an edge card does the same.
         No geometry change.
      b. **Group by rule (optional view)** (built 2026-10-30, v0.10.0;
-        `groupByRule`, `placeHubs`; a hub only where sources + destinations
-        < lines replaced; ghost links join when every hidden pair comes
+        `groupByRule`, `placeHubs`; a hub where sources + destinations
+        < lines replaced, or (0.10.2, from the live box) where one rule
+        makes 6+ lines from or to a single node for at most 2 extra lines,
+        e.g. a rule on a hidden segment reaching 6 visible devices; ghost links join when every hidden pair comes
         from the rule; hubs keep clear of boxes and nodes): edges produced *entirely* by one
         rule merge through a rule hub (sources → hub → destinations; 3 + 14
         lines instead of 42 for the demo's big rule). The hub pill names
