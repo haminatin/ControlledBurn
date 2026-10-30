@@ -32,7 +32,7 @@
                 <option value="star">{{ lang._('Star layout') }}</option>
                 <option value="columns">{{ lang._('Columns layout') }}</option>
             </select>
-            <label style="font-weight: normal; margin-right: 1em;">
+            <label style="font-weight: normal; margin-right: 1em;" title="{{ lang._('Grey links between devices on the same network segment. That traffic never passes through the firewall, so no rule can block it. Hidden automatically when there are too many edges to draw quickly; tick to show them anyway.') }}">
                 <input type="checkbox" id="cb-show-unfiltered" checked> {{ lang._('Show same-segment links') }}
             </label>
             <label style="font-weight: normal; margin-right: 1em;" title="{{ lang._('Merge the edges that one rule produces entirely into a hub for that rule. A rule gets a hub when it produces at least 3 such edges and the hub draws fewer lines than the edges it replaces, or when it produces 6 or more from or to a single node (one device, or one hidden segment); otherwise its edges stay individual. Edges that several rules allow always stay individual.') }}">
@@ -41,7 +41,7 @@
             <label style="font-weight: normal; margin-right: 1em;" title="{{ lang._('When the filter hides devices, still show what visible devices can reach among them (and be reached from)') }}">
                 <input type="checkbox" id="cb-hidden-links" checked> {{ lang._('Links to hidden devices') }}
             </label>
-            <label style="font-weight: normal; margin-right: 1em;">
+            <label style="font-weight: normal; margin-right: 1em;" title="{{ lang._('Show service names instead of port numbers on edge tags and cards (tcp/ssh instead of tcp/22). Names come from a built-in list of common services; other ports stay as numbers.') }}">
                 <input type="checkbox" id="cb-port-names"> {{ lang._('Port names') }}
             </label>
             <button class="btn btn-default btn-sm" id="cb-fit"><i class="fa fa-expand fa-fw"></i> {{ lang._('Fit') }}</button>
