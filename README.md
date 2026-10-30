@@ -85,7 +85,8 @@ Beyond the basic graph, things you might not expect:
   example a table pf couldn't read), the edge is drawn **amber** as
   possibly allowed, not guessed. pf lines it couldn't parse are listed.
 - **A readable graph on busy networks.** Edges are bundled metro-map
-  style into parallel lanes that cross as little as possible. Choose star
+  style into parallel lanes that cross as little as possible, always go
+  round other segments' boxes and nodes, and keep clear of segment names. Choose star
   or columns layouts, drag nodes or whole segments, filter by device,
   segment or alias, and hide same-segment links.
 - **See a rule's reach.** **Group by rule** merges the edges one rule

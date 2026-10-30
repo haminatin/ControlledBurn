@@ -873,12 +873,23 @@ yet.
      of what it groups, and its card lists each hidden device with its own
      ports and rules. Clicking the pill can unhide the segment. No ✕
      marker, which would read as "blocked". A toggle, on by default.
-  2. **Edges never pass under WAN, This Firewall or a segment box.** They
-     go round, so nothing is ambiguous. Segment boxes become obstacles for
-     edges that don't start or end inside them.
-  3. **Edges keep off segment names.** Edges currently run through the
-     labels, which makes them hard to read. The label strip becomes an
-     obstacle for routes and for edge tags.
+  2. **Edges never pass under WAN, This Firewall or a segment box**
+     (built 2026-10-30). Nodes were already obstacles. Segment boxes, plus
+     a 6px margin, now are too, for edges that don't start or end in them:
+     the grid knows each box's cells and an edge passes only its own ends'
+     boxes (fallback: route anyway rather than drop the edge, e.g. when
+     boxes are dragged on top of each other).
+     - Measured: most crossings were lanes spreading sideways. Lanes now
+       keep off foreign boxes and names, and are clamped to these hard
+       limits even when a corridor is too full for MIN_LANE_GAP.
+     - The routing rule itself matters for big segments: routes took a
+       shortcut down a segment's sub-column corridor (10–12 per test
+       network without it).
+     - Zero crossings of foreign boxes, nodes or names on every dataset
+       in both layouts; none in dragged layouts unless boxes overlap.
+  3. **Edges keep off segment names** (built 2026-10-30).
+     `segmentLabelRect` gives the drawn name's rectangle; it's blocked for
+     every route and is an obstacle for lanes and edge tags.
   4. **Auto-size busy nodes.** A node with many edges overspilled its sides
      on the live box. Grow the node so each side holds its lanes at
      LANE_GAP (route, measure each side, resize, route again).
@@ -902,6 +913,16 @@ yet.
         the rule and shows the count; its card lists every pair. Edges with
         several rules stay individual. A toggle switches back to
         individual edges.
+  7. **Show block rules** (idea 2026-10-30). An ✕ pill per explicit block
+     rule that decides at least one pair and port (e.g. "Block IoT to LAN ·
+     8 pairs"), outside its sources' segment, with a line from each source
+     device into it. Its card lists the blocked pairs and ports and links
+     the rule. Leave out OPNsense's automatic blocks (default deny,
+     anti-spoofing, bogons) and dead blocks (already in the Rule check).
+     Partial blocks show the hole cut out of an allowed edge. Red, toggle
+     off by default. Needs the engine: `summarisePair` adds each edge's
+     blocked slices decided by explicit rules (`evaluateFlows` already has
+     them), and pairs blocked only by explicit rules get an edge too.
 - **"Highway" edge bundling** (idea, 2026-10-17): **built** as lanes,
   see §UI Edges. Still open: thinning repeated identical labels (e.g. many
   "tcp/any, udp/any, icmp +1" from broad rules), seen in the Milestone 8

@@ -326,7 +326,7 @@ check('example: no two edges drawn on top of each other', overlap(exRoutes) === 
 check('example (star): at most 33 crossings', cb.countCrossings(exRoutes) <= 33);
 const exCols = cb.layout(cb.buildModel(require(path.join(__dirname, 'fixtures', 'example_graph.json'))), {}, 'columns');
 const exColRoutes = cb.routeAll(exCols);
-check('example (columns): at most 75 crossings, nothing on top of anything', cb.countCrossings(exColRoutes) <= 75 && clashes(exColRoutes) === 0);
+check('example (columns): at most 66 crossings, nothing on top of anything', cb.countCrossings(exColRoutes) <= 66 && clashes(exColRoutes) === 0);
 
 // dragged layouts: edges must never end up drawn on top of each other
 // (seen on the box: lanes collapsing beside a node corner, crowded
@@ -452,6 +452,100 @@ check('example: no runs within 2px of another edge', clashes(exRoutes) === 0);
         check(mode + ': hub lines all routed, nothing on top of anything', m.edges.every((e) => Array.isArray(r[e.id])) && clashes(r) === 0);
         check(mode + ': hub and hub-line tooltips build', [hub].concat(m.edges.filter((e) => e.hub)).every((it) => cb.tooltipLines(m, it).length > 1));
     }
+}
+
+// ------------------------------------------------------------ edges go round boxes and names
+{
+    // a run passing strictly through a rectangle
+    const through = (a, b, r) => Math.max(a.x, b.x) > r.x + 1 && Math.min(a.x, b.x) < r.x + r.w - 1
+        && Math.max(a.y, b.y) > r.y + 1 && Math.min(a.y, b.y) < r.y + r.h - 1;
+    // where drawSegments puts a segment's name
+    const nameRect = (b) => ({ x: b.x + 10, y: b.y + 5, w: Math.min(b.w - 20, b.label.length * 8.5 + 12), h: 20 });
+    // plus the demo's five-VLAN lab, the busiest network and the one whose
+    // routes cut through other segments before this rule
+    const fiveVlans = JSON.parse(require('child_process').execFileSync('php', [path.join(__dirname, '..', 'docs', 'demo', 'make_five_vlans.php')]).toString());
+    const fixtures = ['example_graph.json', 'scenario_iot_mistake.json', 'scenario_ipv6_bypass.json', 'smoke_graph.json', 'five-vlans'];
+    for (const f of fixtures) {
+        const graph = f === 'five-vlans' ? fiveVlans : require(path.join(__dirname, 'fixtures', f));
+        for (const mode of ['star', 'columns']) {
+            for (const filter of [{}, { hiddenSegments: ['vtnet2'], query: '' }]) {
+                const m = cb.layout(cb.buildModel(graph, { filter }), {}, mode);
+                const r = cb.routeAll(m);
+                const byId = {};
+                m.nodes.forEach((n) => { byId[n.id] = n; });
+                const boxes = cb.segmentBoxes(m);
+                let foreignBox = 0;
+                let foreignNode = 0;
+                let onName = 0;
+                m.edges.forEach((e) => {
+                    const pts = r[e.id] || [];
+                    const own = [byId[e.from].segment, byId[e.to].segment];
+                    for (let i = 0; i < pts.length - 1; i++) {
+                        boxes.forEach((b) => {
+                            if (own.indexOf(b.id) < 0 && through(pts[i], pts[i + 1], b)) { foreignBox++; }
+                            if (through(pts[i], pts[i + 1], nameRect(b))) { onName++; }
+                        });
+                        m.nodes.forEach((n) => {
+                            if (n.id !== e.from && n.id !== e.to && through(pts[i], pts[i + 1], n)) { foreignNode++; }
+                        });
+                    }
+                });
+                const tags = Object.values(cb.placeLabels(m, r));
+                const tagOnName = tags.filter((t) => boxes.some((b) => { const n = nameRect(b); return t.x < n.x + n.w && n.x < t.x + t.w && t.y < n.y + n.h && n.y < t.y + t.h; })).length;
+                const label = f.replace('.json', '') + ' ' + mode + (filter.hiddenSegments ? ' (filtered)' : '');
+                check(label + ': every edge routed, none through another segment\'s box, a node or a segment name',
+                    m.edges.every((e) => Array.isArray(r[e.id])) && foreignBox === 0 && foreignNode === 0 && onName === 0);
+                check(label + ': no edge tag covers a segment name', tagOnName === 0);
+            }
+        }
+    }
+    // big segments wrap into sub-columns with a corridor between them; a
+    // route from elsewhere must not take that shortcut through the box
+    {
+        const per = 18;
+        const big = { nodes: [{ id: 'firewall', type: 'firewall', label: 'F', evaluable: true }], edges: [], interfaces: {}, rules: {} };
+        const allowed = [{ proto: 'tcp', from: 443, to: 443, rules: ['r'], intended: false, default: false }];
+        for (let sg = 0; sg < 4; sg++) {
+            big.interfaces['vtnet' + sg] = { descr: 'seg' + sg };
+            for (let i = 0; i < per; i++) {
+                const id = 'device:s' + sg + 'd' + i;
+                big.nodes.push({ id, type: 'device', label: id + '\n10.0.' + sg + '.' + i, if: 'vtnet' + sg, aliases: [], evaluable: true });
+                big.edges.push({ from: id, to: 'firewall', kind: 'filtered', allowed, uncertain: false, uncertain_rules: [] });
+                if (i % 3 === 0) {
+                    for (let t = 0; t < 4; t++) {
+                        if (t !== sg) {
+                            big.edges.push({ from: id, to: 'device:s' + t + 'd' + ((i + 7) % per), kind: 'filtered', allowed, uncertain: false, uncertain_rules: [] });
+                        }
+                    }
+                }
+            }
+        }
+        for (const mode of ['star', 'columns']) {
+            const m = cb.layout(cb.buildModel(big, { showUnfiltered: false }), {}, mode);
+            const r = cb.routeAll(m);
+            const byId = {};
+            m.nodes.forEach((n) => { byId[n.id] = n; });
+            const boxes = cb.segmentBoxes(m);
+            let foreignBox = 0;
+            m.edges.forEach((e) => {
+                const pts = r[e.id] || [];
+                const own = [byId[e.from].segment, byId[e.to].segment];
+                for (let i = 0; i < pts.length - 1; i++) {
+                    boxes.forEach((b) => { if (own.indexOf(b.id) < 0 && through(pts[i], pts[i + 1], b)) { foreignBox++; } });
+                }
+            });
+            check('big segments (' + mode + '): no route cuts through another segment\'s sub-column corridor', foreignBox === 0);
+        }
+    }
+    // boxes dragged on top of each other: the edge is still drawn
+    const crowded = cb.layout(cb.buildModel(require(path.join(__dirname, 'fixtures', 'example_graph.json'))));
+    const seg = (id) => crowded.nodes.filter((n) => n.segment === id);
+    const a = seg('vtnet0')[0];
+    seg('vtnet2').forEach((n, i) => { n.x = a.x + 30; n.y = a.y + 60 + i * 80; });
+    check('segment boxes dragged together: every edge is still drawn', (() => {
+        const r = cb.routeAll(crowded);
+        return crowded.edges.every((e) => Array.isArray(r[e.id]));
+    })());
 }
 
 // every node and edge has a tooltip, without throwing (This Firewall's once

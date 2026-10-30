@@ -444,7 +444,8 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
     var GHOST_H = 40;          // stand-ins for a segment's hidden devices
     var GHOST_MIN_W = 110;
     var GHOST_GAP = 64;        // ...placed this far outside their segment box
-    var HUB_MIN = 3;           // "group by rule": a rule needs this many edges for a hub
+    var HUB_MIN = 3;
+    var BOX_MARGIN = 6;        // edges keep this far outside other segments' boxes           // "group by rule": a rule needs this many edges for a hub
     var STAR_GAP = 120;        // star layout: firewall to the boxes around it
 
     // 24x24 line icons, drawn with the node's text colour
@@ -1517,9 +1518,20 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
         sides.right.forEach(function (b) { b.place(reach + GAP, y); y += b.h + COL_GAP; });
     }
 
+    /**
+     * Where a segment box's name is drawn, cut to fit the box (11px bold
+     * capitals with letter spacing: ~8.5px a character): {x, y, w, h, text}.
+     * Edges and edge tags keep off it.
+     */
+    function segmentLabelRect(b) {
+        var fits = Math.max(4, Math.floor((b.w - 32) / 8.5));
+        var text = truncate(b.label, fits);
+        return { x: b.x + 10, y: b.y + 5, w: text.length * 8.5 + 12, h: 20, text: text };
+    }
+
     /** container rectangles around each segment's current members */
     function segmentBoxes(model) {
-        return model.segments.map(function (seg) {
+        return (model.segments || []).map(function (seg) {
             var members = model.nodes.filter(function (n) { return n.segment === seg.id; });
             var x1 = Math.min.apply(null, members.map(function (n) { return n.x; }));
             var y1 = Math.min.apply(null, members.map(function (n) { return n.y; }));
@@ -1585,12 +1597,14 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
      * Routing grid over the drawing, with every node (inflated by
      * CLEARANCE) marked blocked.
      */
-    function makeGrid(nodes) {
+    function makeGrid(nodes, boxes) {
+        boxes = boxes || [];
         var margin = 6 * GRID;
-        var x1 = Math.min.apply(null, nodes.map(function (n) { return n.x; })) - margin;
-        var y1 = Math.min.apply(null, nodes.map(function (n) { return n.y; })) - margin;
-        var x2 = Math.max.apply(null, nodes.map(function (n) { return n.x + n.w; })) + margin;
-        var y2 = Math.max.apply(null, nodes.map(function (n) { return n.y + n.h; })) + margin;
+        var rects = nodes.concat(boxes);
+        var x1 = Math.min.apply(null, rects.map(function (n) { return n.x; })) - margin;
+        var y1 = Math.min.apply(null, rects.map(function (n) { return n.y; })) - margin;
+        var x2 = Math.max.apply(null, rects.map(function (n) { return n.x + n.w; })) + margin;
+        var y2 = Math.max.apply(null, rects.map(function (n) { return n.y + n.h; })) + margin;
         var grid = {
             ox: Math.floor(x1 / GRID) * GRID,
             oy: Math.floor(y1 / GRID) * GRID,
@@ -1619,6 +1633,29 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
                     grid.blocked[cy * grid.cols + cx] = 1;
                 }
             }
+        });
+        // segment boxes: cells inside one (plus a margin) carry its number
+        // (index + 1); only edges starting or ending in it may use them.
+        // Segment names are off limits to every edge.
+        grid.box = new Uint16Array(grid.cols * grid.rows);
+        var cells = function (r, fn) {
+            var cx1 = Math.max(0, Math.floor((r.x - grid.ox) / GRID));
+            var cy1 = Math.max(0, Math.floor((r.y - grid.oy) / GRID));
+            var cx2 = Math.min(grid.cols - 1, Math.ceil((r.x + r.w - grid.ox) / GRID));
+            var cy2 = Math.min(grid.rows - 1, Math.ceil((r.y + r.h - grid.oy) / GRID));
+            for (var cy = cy1; cy <= cy2; cy++) {
+                for (var cx = cx1; cx <= cx2; cx++) {
+                    fn(cy * grid.cols + cx);
+                }
+            }
+        };
+        boxes.forEach(function (b, k) {
+            cells({ x: b.x - BOX_MARGIN, y: b.y - BOX_MARGIN, w: b.w + 2 * BOX_MARGIN, h: b.h + 2 * BOX_MARGIN }, function (c) {
+                if (!grid.box[c]) {
+                    grid.box[c] = k + 1;
+                }
+            });
+            cells(segmentLabelRect(b), function (c) { grid.blocked[c] = 1; });
         });
         // extra cost by distance (in cells) to the nearest node, capped
         var size = grid.cols * grid.rows;
@@ -1699,7 +1736,12 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
      * @return array|null polyline points [{x, y}] from source border to
      *         target border, collinear points removed
      */
-    function routeEdge(grid, src, dst) {
+    function routeEdge(grid, src, dst, own) {
+        // own: box numbers this edge may cross (its ends' segments); null
+        // = any (the fallback when boxes leave no way round)
+        var foreign = function (c) {
+            return own && grid.box && grid.box[c] && own.indexOf(grid.box[c]) < 0;
+        };
         var cols = grid.cols;
         var size = cols * grid.rows;
         // search state = (cell * 4 + heading) * 3 + run, where run says
@@ -1727,7 +1769,7 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
 
         ports(grid, src).forEach(function (p) {
             var base = (p.cy * cols + p.cx) * 4 + p.dir;
-            if (grid.blocked[p.cy * cols + p.cx]) { return; }
+            if (grid.blocked[p.cy * cols + p.cx] || foreign(p.cy * cols + p.cx)) { return; }
             best[base * 3] = 0;
             startPort[base] = p;
             heap.push({ s: base * 3, g: 0, f: h(p.cx, p.cy) });
@@ -1753,7 +1795,7 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
                 var ny = cy + DY[nd];
                 if (nx < 0 || ny < 0 || nx >= cols || ny >= grid.rows) { continue; }
                 var ncell = ny * cols + nx;
-                if (grid.blocked[ncell]) { continue; }
+                if (grid.blocked[ncell] || foreign(ncell)) { continue; }
                 var axis = nd & 1;
                 var along = grid.used[axis][ncell] > 0;
                 var g = cur.g + grid.edgeCost[ncell]
@@ -1868,7 +1910,10 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
     function routeAll(model) {
         var byId = {};
         model.nodes.forEach(function (n) { byId[n.id] = n; });
-        var grid = makeGrid(model.nodes);
+        var boxes = segmentBoxes(model);
+        var boxNo = {};
+        boxes.forEach(function (b, k) { boxNo[b.id] = k + 1; });
+        var grid = makeGrid(model.nodes, boxes);
         var routes = {};
         // firewall-crossing edges first, then same-segment links, which go
         // round whatever is left (routed early, a link between two devices
@@ -1880,7 +1925,12 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
                 || dist(byId[a.from], byId[a.to]) - dist(byId[b.from], byId[b.to]);
         });
         order.forEach(function (e) {
-            routes[e.id] = routeEdge(grid, byId[e.from], byId[e.to]);
+            var own = [byId[e.from].segment, byId[e.to].segment].map(function (sg) { return boxNo[sg]; })
+                .filter(function (k) { return !!k; });
+            // round other segments' boxes; if they leave no way, the edge
+            // still gets drawn (straight through), never dropped
+            routes[e.id] = routeEdge(grid, byId[e.from], byId[e.to], own)
+                || routeEdge(grid, byId[e.from], byId[e.to], null);
         });
         // runs that only meet end to end can still end up overlapping once
         // the lanes across them spread; lay out, find any, and lay out
@@ -2020,6 +2070,14 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
         model.nodes.forEach(function (n) { byId[n.id] = n; });
         var cellsOf = {};
         var lines = { h: [], v: [] };
+        // besides nodes, lanes keep off other segments' boxes and every
+        // segment name, as the routes do
+        var boxes = segmentBoxes(model);
+        var names = boxes.map(segmentLabelRect);
+        var ownSegments = {};
+        model.edges.forEach(function (e) {
+            ownSegments[e.id] = [byId[e.from] && byId[e.from].segment, byId[e.to] && byId[e.to].segment];
+        });
         model.edges.forEach(function (e) {
             var pts = routes[e.id];
             if (!pts) {
@@ -2221,21 +2279,41 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
             // border of any node it ends at
             var lo = [];
             var hi = [];
+            // hard limits only: things a lane must never cross (other
+            // nodes, other segments' boxes, names); lo/hi also hold the
+            // softer "stay within the side of the node it ends at"
+            var hardLo = [];
+            var hardHi = [];
             group.forEach(function (s, g) {
                 lo[g] = -Infinity;
                 hi[g] = Infinity;
-                model.nodes.forEach(function (nd) {
-                    var along = s.horiz ? [nd.x, nd.x + nd.w] : [nd.y, nd.y + nd.h];
-                    var across = s.horiz ? [nd.y, nd.y + nd.h] : [nd.x, nd.x + nd.w];
-                    if (along[1] <= s.lo || along[0] >= s.hi || s.ends.indexOf(nd) >= 0) {
+                hardLo[g] = -Infinity;
+                hardHi[g] = Infinity;
+                var keepOff = function (r, gap) {
+                    var along = s.horiz ? [r.x, r.x + r.w] : [r.y, r.y + r.h];
+                    var across = s.horiz ? [r.y, r.y + r.h] : [r.x, r.x + r.w];
+                    if (along[1] <= s.lo || along[0] >= s.hi) {
                         return;
                     }
                     if (across[1] <= s.at) {
-                        lo[g] = Math.max(lo[g], across[1] + 4);
+                        lo[g] = Math.max(lo[g], across[1] + gap);
+                        hardLo[g] = Math.max(hardLo[g], across[1] + gap);
                     } else if (across[0] >= s.at) {
-                        hi[g] = Math.min(hi[g], across[0] - 4);
+                        hi[g] = Math.min(hi[g], across[0] - gap);
+                        hardHi[g] = Math.min(hardHi[g], across[0] - gap);
+                    }
+                };
+                model.nodes.forEach(function (nd) {
+                    if (s.ends.indexOf(nd) < 0) {
+                        keepOff(nd, 4);
                     }
                 });
+                boxes.forEach(function (b) {
+                    if ((ownSegments[s.id] || []).indexOf(b.id) < 0) {
+                        keepOff(b, 3);
+                    }
+                });
+                names.forEach(function (r) { keepOff(r, 2); });
                 s.ends.forEach(function (nd) {
                     if (nd) {
                         var side = s.horiz ? [nd.y, nd.y + nd.h] : [nd.x, nd.x + nd.w];
@@ -2301,7 +2379,12 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
             for (var gap = LANE_GAP - 1; !placed.fits && gap >= MIN_LANE_GAP; gap--) {
                 placed = place(gap);
             }
-            return placed.at;
+            // never past a hard limit (another node, another segment's box,
+            // a name): in a corridor too full even at MIN_LANE_GAP, lanes
+            // squeeze closer there rather than spill into a box
+            return placed.at.map(function (v, g) {
+                return hardLo[g] <= hardHi[g] ? Math.min(Math.max(v, hardLo[g]), hardHi[g]) : v;
+            });
         }
     }
 
@@ -2417,7 +2500,7 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
         var placed = [];
         var obstacles = model.nodes.map(function (n) {
             return { x: n.x, y: n.y, w: n.w, h: n.h };
-        });
+        }).concat(segmentBoxes(model).map(segmentLabelRect));
         var out = {};
         var routeLen = function (pts) {
             var len = 0;
@@ -3450,14 +3533,13 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
                 box.addEventListener('pointerdown', function (evt) {
                     startDrag(evt, model.nodes.filter(function (n) { return n.segment === b.id; }));
                 });
-                // long names are cut to the box (11px bold capitals with
-                // letter spacing: ~8.5px a character); the full name on hover
-                var fits = Math.max(4, Math.floor((b.w - 32) / 8.5));
-                var t = text(gSegments, b.x + 16, b.y + 19, truncate(b.label, fits), 'cb-segment-label');
+                // long names are cut to the box; the full name on hover
+                var shown = segmentLabelRect(b).text;
+                var t = text(gSegments, b.x + 16, b.y + 19, shown, 'cb-segment-label');
                 t.addEventListener('pointerdown', function (evt) {
                     startDrag(evt, model.nodes.filter(function (n) { return n.segment === b.id; }));
                 });
-                if (b.label.length > fits) {
+                if (shown !== b.label) {
                     el('title', {}, t).textContent = b.label;
                 }
             });
