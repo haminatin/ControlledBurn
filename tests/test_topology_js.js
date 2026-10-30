@@ -401,6 +401,59 @@ check('example: no runs within 2px of another edge', clashes(exRoutes) === 0);
     }
 }
 
+// ------------------------------------------------------------ group by rule
+{
+    // LAN (3 devices) reaches 5 others and WAN through one broad rule; a 3 -> 1 rule
+    // saves no lines; one edge is allowed by two rules
+    const dev = (id, ifc) => ({ id, type: 'device', label: id + '\n10.0.0.1', if: ifc, aliases: [], evaluable: true });
+    const allow = (rules, extra) => [Object.assign({ proto: 'tcp', from: 1, to: 65535, rules, intended: false, default: false }, extra || {})];
+    const lan = ['l1', 'l2', 'l3'];
+    const others = ['o1', 'o2', 'o3', 'o4', 'o5'];
+    const g = {
+        nodes: lan.map((id) => dev(id, 'vtnet0')).concat(others.map((id) => dev(id, 'vtnet1')), [dev('srv', 'vtnet2'),
+            { id: 'firewall', type: 'firewall', label: 'This Firewall', evaluable: true }, { id: 'wan', type: 'wan', label: 'WAN', evaluable: true }]),
+        edges: [],
+        interfaces: { vtnet0: { descr: 'LAN' }, vtnet1: { descr: 'IoT' }, vtnet2: { descr: 'Servers' } },
+        rules: { broad: { descr: 'Allow LAN to any' }, smb: { descr: 'LAN to server SMB' }, gui: { descr: 'LAN to GUI' } }
+    };
+    lan.forEach((s) => others.concat(['wan']).forEach((d) => g.edges.push({ from: s, to: d, kind: 'filtered', allowed: allow(['broad']), uncertain: false, uncertain_rules: [] })));
+    lan.forEach((s) => g.edges.push({ from: s, to: 'srv', kind: 'filtered', allowed: allow(['smb'], { from: 445, to: 445, intended: true }), intended: true, uncertain: false, uncertain_rules: [] }));
+    g.edges.push({ from: 'l1', to: 'firewall', kind: 'filtered', allowed: allow(['broad']).concat(allow(['gui'], { from: 443, to: 443 })), uncertain: false, uncertain_rules: [] });
+
+    const off = cb.buildModel(g);
+    const on = cb.buildModel(g, { groupByRule: true });
+    const hubs = on.nodes.filter((n) => n.type === 'rulehub');
+    check('group by rule is off by default', !off.nodes.some((n) => n.type === 'rulehub'));
+    check('a rule fanning out (3 -> 6) gets a hub; a 3 -> 1 rule saves no lines and does not',
+        hubs.length === 1 && hubs[0].rule === 'broad');
+    check('the hub names its rule and counts its pairs and ports', hubs[0].name === 'Allow LAN to any' && hubs[0].ip === '18 pairs · tcp/any');
+    check('hub: one line per source in, one per destination out (3 + 6 for 18 pairs)',
+        on.edges.filter((e) => e.to === hubs[0].id).length === 3 && on.edges.filter((e) => e.from === hubs[0].id).length === 6);
+    check('every grouped pair is in exactly one hub line on each side', [0, 1].every((side) =>
+        on.edges.filter((e) => (side ? e.from : e.to) === hubs[0].id).reduce((t, e) => t + e.members.length, 0) === 18));
+    check('edges the rule did not produce alone stay individual (several rules, the 3 -> 1 rule)',
+        on.edges.some((e) => e.id === 'f:l1>firewall') && lan.every((s) => on.edges.some((e) => e.id === 'f:' + s + '>srv')));
+    check('the hub is outlined in its edges\' colour (broad: orange)', hubs[0].colour === 'filtered');
+
+    // filtered to LAN only: links to hidden devices join the hub too (here
+    // 3 -> WAN + the IoT ghost: 6 lines become 5)
+    const lanOnly = cb.buildModel(g, { groupByRule: true, filter: { hiddenSegments: ['vtnet1', 'vtnet2'], query: '' } });
+    const lh = lanOnly.nodes.find((n) => n.type === 'rulehub');
+    check('links to hidden devices join their rule\'s hub, which leads to the ghost',
+        !!lh && lanOnly.edges.some((e) => e.from === lh.id && e.to.startsWith('ghost:')) && lh.ip.startsWith('18 pairs'));
+
+    for (const mode of ['star', 'columns']) {
+        const m = cb.layout(cb.buildModel(g, { groupByRule: true }), {}, mode);
+        const hub = m.nodes.find((n) => n.type === 'rulehub');
+        const boxes = cb.segmentBoxes(m);
+        check(mode + ': the hub sits outside every segment box', boxes.every((b) =>
+            hub.x >= b.x + b.w || hub.x + hub.w <= b.x || hub.y >= b.y + b.h || hub.y + hub.h <= b.y));
+        const r = cb.routeAll(m);
+        check(mode + ': hub lines all routed, nothing on top of anything', m.edges.every((e) => Array.isArray(r[e.id])) && clashes(r) === 0);
+        check(mode + ': hub and hub-line tooltips build', [hub].concat(m.edges.filter((e) => e.hub)).every((it) => cb.tooltipLines(m, it).length > 1));
+    }
+}
+
 // every node and edge has a tooltip, without throwing (This Firewall's once
 // referred to an undefined variable and threw on hover)
 check('tooltips build for every node and edge', (() => {

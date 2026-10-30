@@ -882,6 +882,26 @@ yet.
   4. **Auto-size busy nodes.** A node with many edges overspilled its sides
      on the live box. Grow the node so each side holds its lanes at
      LANE_GAP (route, measure each side, resize, route again).
+  5. **A dot where each edge starts.** A small filled dot in the edge's
+     colour at its source end; the arrowhead stays at the destination.
+     Same-segment links (no direction) stay plain.
+  6. **Show a rule's impact** (live box, 2026-10-19: many edges come from
+     one rule; in the demo lab "Default allow LAN to any" produces 45 of
+     the 83 rule edges, 42 of them alone). Two steps:
+     a. **Rule lens:** a "Rules by reach" list ranking rules by the edges
+        they produce (sources → destinations). Hover or click highlights
+        that rule's edges and fades the rest (as the Rule check does for
+        dead rules); clicking a rule name in an edge card does the same.
+        No geometry change.
+     b. **Group by rule (optional view)** (built 2026-10-30, v0.10.0;
+        `groupByRule`, `placeHubs`; a hub only where sources + destinations
+        < lines replaced; ghost links join when every hidden pair comes
+        from the rule; hubs keep clear of boxes and nodes): edges produced *entirely* by one
+        rule merge through a rule hub (sources → hub → destinations; 3 + 14
+        lines instead of 42 for the demo's big rule). The hub pill names
+        the rule and shows the count; its card lists every pair. Edges with
+        several rules stay individual. A toggle switches back to
+        individual edges.
 - **"Highway" edge bundling** (idea, 2026-10-17): **built** as lanes,
   see §UI Edges. Still open: thinning repeated identical labels (e.g. many
   "tcp/any, udp/any, icmp +1" from broad rules), seen in the Milestone 8

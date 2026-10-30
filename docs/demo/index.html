@@ -128,6 +128,10 @@ label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
 .cb-node-icon path { fill: none; stroke: var(--cb-muted); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .cb-node-firewall .cb-node-icon path { stroke: var(--cb-firewall); }
 .cb-node-wan .cb-node-icon path { stroke: var(--cb-wan); }
+/* "group by rule": a hub for one rule, outlined in its edges' colour */
+.cb-node-rulehub .cb-node-body { fill: var(--cb-label-bg); stroke: var(--cb-edge); stroke-width: 1.6; filter: none; }
+.cb-node-rulehub .cb-node-name { font-size: 12px; }
+.cb-node-rulehub .cb-node-ip { fill: var(--cb-edge); }
 /* stand-in for a segment's devices hidden by the filter */
 .cb-node-ghost .cb-node-body { fill: transparent; stroke: var(--cb-muted); stroke-width: 1.2; stroke-dasharray: 4 4; filter: none; }
 .cb-node-ghost .cb-node-name { fill: var(--cb-muted); font-weight: 600; }
@@ -383,6 +387,7 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
         </select>
         <select id="cb-layout" aria-label="Layout"><option value="star">Star layout</option><option value="columns">Columns layout</option></select>
         <label for="cb-show-unfiltered"><input type="checkbox" id="cb-show-unfiltered" checked> Same-segment links</label>
+        <label for="cb-group-rule" title="Merge the edges that one rule produces entirely into a hub for that rule. A rule gets a hub only when it produces at least 3 such edges and the hub draws fewer lines than the edges it replaces; otherwise its edges stay individual. Edges that several rules allow always stay individual."><input type="checkbox" id="cb-group-rule"> Group by rule</label>
         <label for="cb-hidden-links" title="When segments are hidden, still show what visible devices can reach among them"><input type="checkbox" id="cb-hidden-links" checked> Links to hidden devices</label>
         <label for="cb-port-names"><input type="checkbox" id="cb-port-names"> Port names</label>
         <input id="cb-filter-query" type="search" placeholder="Filter devices" aria-label="Filter devices">
@@ -439,6 +444,7 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
     var GHOST_H = 40;          // stand-ins for a segment's hidden devices
     var GHOST_MIN_W = 110;
     var GHOST_GAP = 64;        // ...placed this far outside their segment box
+    var HUB_MIN = 3;           // "group by rule": a rule needs this many edges for a hub
     var STAR_GAP = 120;        // star layout: firewall to the boxes around it
 
     // 24x24 line icons, drawn with the node's text colour
@@ -697,6 +703,8 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
 
     /**
      * opts.showUnfiltered: include same-segment edges (default true)
+     * opts.groupByRule: merge edges one rule produces entirely through a
+     *   hub for that rule, where that draws fewer lines (groupByRule())
      * opts.hiddenLinks: when the filter hides devices, keep a link from
      *   each visible device to a "ghost" per hidden segment it reaches or
      *   is reached from (default true)
@@ -844,6 +852,10 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
             edges.push(ghostEdge(grp, allById));
         });
 
+        if (opts.groupByRule) {
+            edges = groupByRule(nodes, edges, graph.rules || {});
+        }
+
         var segments = ifOrder.filter(function (physical) {
             return nodes.some(function (n) { return n.segment === physical; });
         }).map(function (physical) {
@@ -859,6 +871,120 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
     // how concerning an edge's colour is, for a grouped edge: it shows its
     // most concerning member, never looking safer than any of them
     var CONCERN = { filtered: 4, uncertain: 3, intended: 2, 'default': 1 };
+    // for a rule hub, which also groups checked and changed edges
+    var HUB_CONCERN = { stale: 5, filtered: 4, uncertain: 3, intended: 2, 'default': 1, checked: 0 };
+
+    /**
+     * "Group by rule" view: edges whose every allowed flow comes from one
+     * and the same rule merge through a hub for that rule (sources -> hub
+     * -> destinations), when the rule produces at least HUB_MIN of them
+     * and the hub draws fewer lines than the edges it replaces. A link to
+     * hidden devices joins when every hidden pair it stands for comes
+     * from that rule (the hub then leads to the ghost). Edges allowed by
+     * several rules, uncertain-only edges and same-segment links stay as
+     * they are. The hub shows the
+     * rule's name, how many device pairs it allows and, when they all
+     * allow the same, the ports; each hub edge keeps the edges it stands
+     * for (members) for its card. Adds the hubs to nodes; returns the new
+     * edge list.
+     */
+    function groupByRule(nodes, edges, rules) {
+        var byRule = {};
+        edges.forEach(function (e) {
+            if (e.kind !== 'filtered' || !e.allowed || !e.allowed.length) {
+                return;
+            }
+            var labels = {};
+            // a link to hidden devices: the rules behind all its pairs
+            (e.ghost ? e.members.map(function (m) { return m.edge; }) : [e]).forEach(function (one) {
+                (one.allowed || []).forEach(function (a) {
+                    (a.rules || []).forEach(function (l) { labels[l] = true; });
+                });
+            });
+            var keys = Object.keys(labels);
+            if (keys.length === 1) {
+                (byRule[keys[0]] = byRule[keys[0]] || []).push(e);
+            }
+        });
+        var grouped = {};
+        var out = [];
+        var byId = {};
+        nodes.forEach(function (n) { byId[n.id] = n; });
+        Object.keys(byRule).forEach(function (label) {
+            var list = byRule[label];
+            var srcSet = {};
+            var dstSet = {};
+            list.forEach(function (e) { srcSet[e.from] = true; dstSet[e.to] = true; });
+            // a hub replaces pairs with sources + destinations lines: only
+            // worth it when that's fewer (3 devices -> 1 isn't, 3 -> 14 is)
+            if (list.length < HUB_MIN || Object.keys(srcSet).length + Object.keys(dstSet).length >= list.length) {
+                return;
+            }
+            var hubId = 'rule:' + label;
+            var labelsSeen = {};
+            var worst = 'checked';
+            // device pairs, counting each hidden device behind a ghost link
+            var pairs = list.reduce(function (t, e) { return t + (e.ghost ? e.members.length : 1); }, 0);
+            list.forEach(function (e) {
+                grouped[e.id] = true;
+                labelsSeen[e.label] = true;
+                if (HUB_CONCERN[e.colour] > HUB_CONCERN[worst]) {
+                    worst = e.colour;
+                }
+            });
+            var ports = Object.keys(labelsSeen);
+            var descr = (rules[label] && rules[label].descr) || label;
+            var hub = {
+                id: hubId,
+                type: 'rulehub',
+                rule: label,
+                name: descr,
+                ip: pairs + ' pairs' + (ports.length === 1 && ports[0] ? ' \u00b7 ' + ports[0] : ''),
+                colour: worst,
+                segment: null,
+                aliases: [],
+                ipv6: [],
+                evaluable: true,
+                pairs: pairs,
+                h: GHOST_H
+            };
+            hub.nameShown = truncate(descr, 24);
+            hub.w = Math.round(Math.max(GHOST_MIN_W, Math.max(hub.nameShown.length * 7.4, hub.ip.length * 7.2) + 28));
+            nodes.push(hub);
+            // one edge per source into the hub, one per destination out
+            var sides = [['from', 'to'], ['to', 'from']];
+            sides.forEach(function (side) {
+                var ends = {};
+                list.forEach(function (e) {
+                    (ends[e[side[0]]] = ends[e[side[0]]] || []).push(e);
+                });
+                Object.keys(ends).forEach(function (end) {
+                    var members = ends[end];
+                    var colour = 'checked';
+                    members.forEach(function (e) {
+                        if (HUB_CONCERN[e.colour] > HUB_CONCERN[colour]) {
+                            colour = e.colour;
+                        }
+                    });
+                    var into = side[0] === 'from';
+                    out.push({
+                        id: 'h:' + (into ? end + '>' + hubId : hubId + '>' + end),
+                        from: into ? end : hubId,
+                        to: into ? hubId : end,
+                        hub: hubId,
+                        kind: 'filtered',
+                        colour: colour,
+                        allowed: [],
+                        label: '',
+                        members: members.map(function (e) {
+                            return { node: byId[e[side[1]]], edge: e };
+                        })
+                    });
+                });
+            });
+        });
+        return edges.filter(function (e) { return !grouped[e.id]; }).concat(out);
+    }
 
     /**
      * The edge from a visible device to (or from) a ghost: what it reaches
@@ -1129,6 +1255,7 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
                 }
             });
             placeGhosts(model, mode, positions);
+            placeHubs(model, positions);
             return model;
         }
 
@@ -1167,7 +1294,109 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
             }
         });
         placeGhosts(model, mode, positions);
+        placeHubs(model, positions);
         return model;
+    }
+
+    /**
+     * Rule hubs sit just outside their sources' segment box (a rule
+     * belongs to an interface, so its sources are nearly always one
+     * segment), on the side facing the middle of their destinations,
+     * stacked if several share a side, and clear of every box and node:
+     * failing that side, another, else further out. Sources that are the firewall or
+     * WAN: beside that node instead.
+     */
+    function placeHubs(model, positions) {
+        var hubs = model.nodes.filter(function (n) { return n.type === 'rulehub'; });
+        if (!hubs.length) {
+            return;
+        }
+        var byId = {};
+        model.nodes.forEach(function (n) { byId[n.id] = n; });
+        var boxes = {};
+        segmentBoxes(model).forEach(function (b) { boxes[b.id] = b; });
+        var centre = function (n) { return { x: n.x + n.w / 2, y: n.y + n.h / 2 }; };
+        var stacks = {};
+        hubs.forEach(function (h) {
+            var srcs = [];
+            var dsts = [];
+            model.edges.forEach(function (e) {
+                if (e.to === h.id && byId[e.from]) { srcs.push(byId[e.from]); }
+                if (e.from === h.id && byId[e.to]) { dsts.push(byId[e.to]); }
+            });
+            var seg = srcs.length && srcs[0].segment;
+            var box = seg && boxes[seg] ? boxes[seg]
+                : srcs.length ? { x: srcs[0].x, y: srcs[0].y, w: srcs[0].w, h: srcs[0].h, id: srcs[0].id } : null;
+            if (!box) {
+                return;
+            }
+            var bc = { x: box.x + box.w / 2, y: box.y + box.h / 2 };
+            var dc = dsts.reduce(function (acc, n) {
+                var c = centre(n);
+                return { x: acc.x + c.x / dsts.length, y: acc.y + c.y / dsts.length };
+            }, { x: 0, y: 0 });
+            var dx = dc.x - bc.x;
+            var dy = dc.y - bc.y;
+            var side = Math.abs(dx) >= Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : (dy < 0 ? 'top' : 'bottom');
+            var key = (box.id || seg) + ':' + side;
+            (stacks[key] = stacks[key] || { box: box, side: side, list: [] }).list.push(h);
+        });
+        // keep clear of segment boxes, other nodes and hubs already placed:
+        // the preferred side first, then the others, then further out
+        var placed = model.nodes.filter(function (n) { return n.type !== 'rulehub'; })
+            .map(function (n) { return { x: n.x, y: n.y, w: n.w, h: n.h }; })
+            .concat(segmentBoxes(model));
+        var clear = function (r) {
+            return placed.every(function (o) {
+                return r.x >= o.x + o.w + 12 || r.x + r.w + 12 <= o.x || r.y >= o.y + o.h + 12 || r.y + r.h + 12 <= o.y;
+            });
+        };
+        var spot = function (st, side, out) {
+            var box = st.box;
+            var gap = 16;
+            var cx = box.x + box.w / 2;
+            var cy = box.y + box.h / 2;
+            var at = [];
+            if (side === 'left' || side === 'right') {
+                var y = cy - (st.list.reduce(function (t, h) { return t + h.h; }, 0) + gap * (st.list.length - 1)) / 2;
+                st.list.forEach(function (h) {
+                    at.push({ x: side === 'left' ? box.x - GHOST_GAP - out - h.w : box.x + box.w + GHOST_GAP + out, y: y, w: h.w, h: h.h });
+                    y += h.h + gap;
+                });
+            } else {
+                var x = cx - (st.list.reduce(function (t, h) { return t + h.w; }, 0) + gap * (st.list.length - 1)) / 2;
+                st.list.forEach(function (h) {
+                    at.push({ x: x, y: side === 'top' ? box.y - GHOST_GAP - out - h.h : box.y + box.h + GHOST_GAP + out, w: h.w, h: h.h });
+                    x += h.w + gap;
+                });
+            }
+            return at;
+        };
+        Object.keys(stacks).forEach(function (key) {
+            var st = stacks[key];
+            var order = [st.side].concat(['right', 'left', 'bottom', 'top'].filter(function (sd) { return sd !== st.side; }));
+            var chosen = null;
+            for (var out = 0; out <= 20 * 24 && !chosen; out += 24) {
+                for (var i = 0; i < order.length && !chosen; i++) {
+                    var at = spot(st, order[i], out);
+                    if (at.every(clear)) {
+                        chosen = at;
+                    }
+                }
+            }
+            chosen = chosen || spot(st, st.side, 0);
+            st.list.forEach(function (h, i) {
+                h.x = chosen[i].x;
+                h.y = chosen[i].y;
+                placed.push(chosen[i]);
+            });
+        });
+        hubs.forEach(function (h) {
+            if (positions[h.id]) {
+                h.x = positions[h.id].x - h.w / 2;
+                h.y = positions[h.id].y - h.h / 2;
+            }
+        });
     }
 
     /**
@@ -2779,6 +3008,27 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
             glines.push('Devices hidden by the filter. Click the line for their rules.');
             return glines;
         }
+        if (item.kind && item.hub) {
+            var ha = byId[item.from];
+            var hb = byId[item.to];
+            var hl = [ha.name + ' → ' + hb.name];
+            item.members.forEach(function (m) {
+                hl.push(truncate(m.node.name, TIP_RULE_CHARS) + ':  ' + truncate(m.edge.label || '?', TIP_RULE_CHARS));
+            });
+            hl.push('Click the line for the pairs and the rule.');
+            return hl;
+        }
+        if (item.type === 'rulehub') {
+            var srcs = {};
+            var dsts = {};
+            model.edges.forEach(function (e) {
+                if (e.to === item.id) { srcs[e.from] = true; }
+                if (e.from === item.id) { dsts[e.to] = true; }
+            });
+            return [item.name, item.pairs + ' device pairs allowed by this rule alone: '
+                + Object.keys(srcs).length + ' source(s) \u2192 ' + Object.keys(dsts).length + ' destination(s).',
+                'Click to highlight its links. Untick "Group by rule" to see them individually.'];
+        }
         if (item.type === 'ghost') {
             return [item.name + ': ' + item.ip + ' by the filter',
                 'Lines here show what visible devices can reach there, or be reached from.',
@@ -2852,7 +3102,8 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
      * and positions() (current node centres, for saving a layout).
      *
      * opts.showUnfiltered, opts.positions, opts.layout ('star' or
-     *   'columns'), opts.hiddenLinks: see buildModel() / layout()
+     *   'columns'), opts.hiddenLinks, opts.groupByRule: see buildModel()
+     *   / layout()
      * opts.onShowSegment: function(segmentId) to unhide a segment, from a
      *   ghost (a filtered-out segment's stand-in) or a grouped edge's card
      * opts.theme: 'dark' (default for now) or 'light'
@@ -3013,6 +3264,42 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
                     rows.uncertain.forEach(function (r) { ruleLine(ub, r); });
                 }
             };
+            if (e.hub) {
+                var hubNode = byId[e.hub];
+                div('cb-card-note', card, 'Allowed by one rule: ' + hubNode.name + '. Each pair this line stands for:');
+                var pairRow = function (from, to, label, note) {
+                    var item = div('cb-card-item', card);
+                    var portBox = div('cb-card-portbox', item);
+                    div('cb-card-port', portBox, label || '?');
+                    div('cb-card-rule-name', div('cb-card-rules', item), from + ' \u2192 ' + to + (note || ''));
+                };
+                var nameOf = function (id) { return byId[id] ? byId[id].name : id; };
+                var firstPair = null;
+                e.members.forEach(function (m) {
+                    if (m.edge.ghost) {
+                        // a link to hidden devices: each hidden pair
+                        m.edge.members.forEach(function (h) {
+                            firstPair = firstPair || h.edge;
+                            var hiddenFrom = h.edge.from === h.node.id;
+                            pairRow(hiddenFrom ? h.node.name : nameOf(m.edge.from),
+                                hiddenFrom ? nameOf(m.edge.to) : h.node.name, h.edge.label, ' (hidden)');
+                        });
+                    } else {
+                        firstPair = firstPair || m.edge;
+                        pairRow(nameOf(m.edge.from), nameOf(m.edge.to), m.edge.label);
+                    }
+                });
+                var hubRows = firstPair ? ruleRows(model, firstPair, opts.ruleLink).allowed : [];
+                if (hubRows.length) {
+                    div('cb-card-section', card, 'The rule');
+                    ruleLine(div('cb-card-rules', card), hubRows[0]);
+                }
+                div('cb-card-note', card, 'To check pairs one by one, untick "Group by rule".');
+                var hbox = container.getBoundingClientRect();
+                card.style.left = Math.max(8, Math.min(evt.clientX - hbox.left + 12, hbox.width - card.offsetWidth - 8)) + 'px';
+                card.style.top = Math.max(8, Math.min(evt.clientY - hbox.top + 12, hbox.height - card.offsetHeight - 8)) + 'px';
+                return;
+            }
             if (e.ghost) {
                 var ghostNode = byId[e.from].type === 'ghost' ? byId[e.from] : byId[e.to];
                 div('cb-card-note', card, ghostNode.ip + ' in ' + ghostNode.name + ' (hidden by the filter). Each one this reaches, or is reached from:');
@@ -3223,7 +3510,8 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
         function drawNodes() {
             gNodes.textContent = '';
             model.nodes.forEach(function (n) {
-                var cls = 'cb-node cb-node-' + n.type + (n.evaluable || n.type !== 'device' ? '' : ' cb-node-off');
+                var cls = 'cb-node cb-node-' + n.type + (n.evaluable || n.type !== 'device' ? '' : ' cb-node-off')
+                    + (n.type === 'rulehub' ? ' cb-c-' + n.colour : '');
                 var g = el('g', { 'class': cls, transform: 'translate(' + n.x + ',' + n.y + ')' }, gNodes);
                 el('path', { d: squirclePath(0, 0, n.w, n.h, 14), 'class': 'cb-node-body' }, g);
                 if (ICONS[n.type]) {
@@ -3654,6 +3942,7 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
       onReview: function () { findings = renderRuleCheck(); },
       showUnfiltered: $('cb-show-unfiltered').checked,
       hiddenLinks: $('cb-hidden-links').checked,
+      groupByRule: $('cb-group-rule').checked,
       onShowSegment: showSegment,
       ruleLink: ruleLink,
       onPinChange: function (key) { if (findings) { findings.setPinned(key); } },
@@ -3662,7 +3951,7 @@ a.cb-bd-rule-name { text-decoration: underline dotted; }
     });
     findings = renderRuleCheck();
   }
-  ['cb-layout', 'cb-show-unfiltered', 'cb-hidden-links', 'cb-port-names'].forEach(function (id) {
+  ['cb-layout', 'cb-show-unfiltered', 'cb-hidden-links', 'cb-group-rule', 'cb-port-names'].forEach(function (id) {
     $(id).addEventListener('change', draw);
   });
   // a new network starts with nothing hidden

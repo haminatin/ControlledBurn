@@ -35,6 +35,9 @@
             <label style="font-weight: normal; margin-right: 1em;">
                 <input type="checkbox" id="cb-show-unfiltered" checked> {{ lang._('Show same-segment links') }}
             </label>
+            <label style="font-weight: normal; margin-right: 1em;" title="{{ lang._('Merge the edges that one rule produces entirely into a hub for that rule. A rule gets a hub only when it produces at least 3 such edges and the hub draws fewer lines than the edges it replaces; otherwise its edges stay individual. Edges that several rules allow always stay individual.') }}">
+                <input type="checkbox" id="cb-group-rule"> {{ lang._('Group by rule') }}
+            </label>
             <label style="font-weight: normal; margin-right: 1em;" title="{{ lang._('When the filter hides devices, still show what visible devices can reach among them (and be reached from)') }}">
                 <input type="checkbox" id="cb-hidden-links" checked> {{ lang._('Links to hidden devices') }}
             </label>
@@ -203,6 +206,22 @@
             }
             redraw();
         });
+        // group by rule (per browser; off by default)
+        var GROUP_RULE_KEY = 'controlledburn.groupByRule';
+        try {
+            $('#cb-group-rule').prop('checked', window.localStorage.getItem(GROUP_RULE_KEY) === '1');
+        } catch (e) {
+            // keep the default
+        }
+        $('#cb-group-rule').change(function () {
+            try {
+                window.localStorage.setItem(GROUP_RULE_KEY, $(this).is(':checked') ? '1' : '0');
+            } catch (e) {
+                // a viewing convenience only
+            }
+            redraw();
+        });
+
         // a ghost (or a grouped edge's card) asks to show its segment
         function showSegment(segmentId) {
             filter.hiddenSegments = filter.hiddenSegments.filter(function (id) { return id !== segmentId; });
@@ -378,7 +397,8 @@
             return ControlledBurn.buildModel(graph, {
                 showUnfiltered: showUnfiltered,
                 filter: filter,
-                hiddenLinks: $('#cb-hidden-links').is(':checked')
+                hiddenLinks: $('#cb-hidden-links').is(':checked'),
+                groupByRule: $('#cb-group-rule').is(':checked')
             }).edges.length;
         }
 
@@ -402,6 +422,7 @@
             network = ControlledBurn.render(document.getElementById('cb-graph'), graph, {
                 showUnfiltered: box.is(':checked'),
                 hiddenLinks: $('#cb-hidden-links').is(':checked'),
+                groupByRule: $('#cb-group-rule').is(':checked'),
                 onShowSegment: showSegment,
                 portNames: $('#cb-port-names').is(':checked'),
                 filter: filter,

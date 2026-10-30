@@ -96,6 +96,10 @@
 .cb-node-icon path { fill: none; stroke: var(--cb-muted); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .cb-node-firewall .cb-node-icon path { stroke: var(--cb-firewall); }
 .cb-node-wan .cb-node-icon path { stroke: var(--cb-wan); }
+/* "group by rule": a hub for one rule, outlined in its edges' colour */
+.cb-node-rulehub .cb-node-body { fill: var(--cb-label-bg); stroke: var(--cb-edge); stroke-width: 1.6; filter: none; }
+.cb-node-rulehub .cb-node-name { font-size: 12px; }
+.cb-node-rulehub .cb-node-ip { fill: var(--cb-edge); }
 /* stand-in for a segment's devices hidden by the filter */
 .cb-node-ghost .cb-node-body { fill: transparent; stroke: var(--cb-muted); stroke-width: 1.2; stroke-dasharray: 4 4; filter: none; }
 .cb-node-ghost .cb-node-name { fill: var(--cb-muted); font-weight: 600; }
