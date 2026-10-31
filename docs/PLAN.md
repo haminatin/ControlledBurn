@@ -931,6 +931,51 @@ yet.
      off by default. Needs the engine: `summarisePair` adds each edge's
      blocked slices decided by explicit rules (`evaluateFlows` already has
      them), and pairs blocked only by explicit rules get an edge too.
+     - **Engine built (2026-10-31, branch `block-rules`):** `summarisePair`
+       returns `blocked` ranges (same shape as `allowed`, rule-decided
+       only; default deny never appears). `buildGraph` moves them off the
+       edges into a top-level `blocks` list, one entry per non-automatic
+       block rule: `{rule, pairs: [{from, to, blocked}]}`, including pairs
+       it blocks entirely, which have no edge. Edges and saved check
+       fingerprints are unchanged. A rule blocking one public network
+       blocks the pair to WAN on those ports. Demo lab: "Block IoT to all
+       private networks" blocks 21 pairs; IoT scenario: "Block IoT to LAN"
+       blocks iot-cam → both LAN devices and the firewall once it's
+       reordered, and nothing while it's shadowed.
+     - Where a pair has several addresses (the firewall's, named internet
+       networks), a blocked range carries `at` when it covers only some
+       of them ("everything to 192.168.77.1": the IoT address stays
+       open); covering all of them, it doesn't.
+     - **UI built (2026-10-31):** "Block rules" toggle (off, per
+       browser), `blockPills`: a red ✕ pill per rule, placed by
+       `placeHubs`, one solid line into it per visible source; pairs with
+       a hidden source are left out. The pill and card label each pair
+       "everything", the ports, or "all but udp/53, udp/67" when the block
+       fills everything round what the same family allows (the hole), and
+       the card says what's otherwise allowed. Clicking the line opens the
+       card; there's no check mark, as with hubs.
+     - Lane assignment now gets 8 passes (was 5): the extra lines left
+       one clash in the demo lab's columns layout that a 6th pass clears.
+     - Measured (five-VLAN lab, one layout each): crossings 1053 → 1189
+       (star) and 766 → 1128 (columns) with the 21 block lines on.
+       Columns suffers because broad blocks ("IoT to private networks")
+       face the middle of the row. Open: better pill placement, or one
+       pill per (rule, source segment) placed at the box edge.
+  9. **Same-segment links shown by the segment box** (idea 2026-10-17,
+     listed 2026-10-31). In a big segment, all-pairs same-segment links
+     (n(n-1)/2: 20 devices give 190) dominate and cross everything. When
+     every device in a segment can reach every other (which is always true
+     of same-segment traffic, as it never crosses the firewall), show that
+     with the box itself instead of one line per pair.
+  10. **Rule list for audits** (idea 2026-10-31). A simplified list of the
+      rules in a collapsible panel to one side, for a firewall audit that
+      goes through the rules one by one. For now each row is just
+      interface | description, in the order pf evaluates them. Clicking a
+      rule highlights the nodes and edges it decides, like clicking a node
+      does now (a pinned set, as the Rule check uses): edges it allows,
+      pairs it blocks (item 7's `blocks`), nothing for a dead rule (which
+      the Rule check already explains). Overlaps 6a (rule lens, "Rules by
+      reach"): the same panel could later sort by reach instead of order.
 - **"Highway" edge bundling** (idea, 2026-10-17): **built** as lanes,
   see §UI Edges. Still open: thinning repeated identical labels (e.g. many
   "tcp/any, udp/any, icmp +1" from broad rules), seen in the Milestone 8

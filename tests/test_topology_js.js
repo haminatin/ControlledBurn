@@ -473,6 +473,63 @@ check('example: no runs within 2px of another edge', clashes(exRoutes) === 0);
     }
 }
 
+// ------------------------------------------------------------ block rules
+{
+    const iot = require(path.join(__dirname, 'fixtures', 'scenario_iot_reorder.json'));
+    const cam = 'device:bc:24:11:88:03:03';
+    check('block rules are off by default', !cb.buildModel(iot).nodes.some((n) => n.type === 'blockhub'));
+    const on = cb.buildModel(iot, { showBlocks: true });
+    const pills = on.nodes.filter((n) => n.type === 'blockhub');
+    check('a pill per deciding block rule, named and counting its pairs',
+        pills.length === 1 && pills[0].name === 'Block IoT to LAN' && pills[0].ip === '3 pairs');
+    const lines = on.edges.filter((e) => e.block);
+    check('one line into the pill per source (iot-cam), holding its pairs',
+        lines.length === 1 && lines[0].from === cam && lines[0].to === pills[0].id && lines[0].pairs.length === 3);
+    const fw = pills[0].pairs.find((p) => p.to === 'firewall');
+    check('a block on some of the firewall\'s addresses says which, and what is still allowed',
+        fw.label === 'everything to 192.168.77.1' && fw.otherwise === 'any');
+    check('a pair blocked entirely: "everything", nothing else allowed',
+        pills[0].pairs.filter((p) => p.label === 'everything' && p.otherwise === null).length === 2);
+    check('the other edges are unchanged by the toggle',
+        JSON.stringify(on.edges.filter((e) => !e.block).map((e) => e.id)) === JSON.stringify(cb.buildModel(iot).edges.map((e) => e.id)));
+
+    const v6 = cb.buildModel(require(path.join(__dirname, 'fixtures', 'scenario_ipv6_bypass.json')), { showBlocks: true })
+        .nodes.find((n) => n.type === 'blockhub').pairs.find((p) => p.to !== 'firewall');
+    check('an IPv4 block is not "all but" what IPv6 allows', v6.label === 'everything' && v6.otherwise === 'v6: any');
+    // a block cutting everything but what rules above it allow
+    const holed = {
+        interfaces: { vtnet0: { descr: 'IoT' } },
+        rules: { dns: { descr: 'DNS' }, wall: { descr: 'Block IoT to the firewall' } },
+        nodes: [{ id: 'device:tv', type: 'device', label: 'tv\n192.168.20.5', if: 'vtnet0', evaluable: true },
+            { id: 'firewall', type: 'firewall', label: 'This Firewall', evaluable: true }],
+        edges: [{ from: 'device:tv', to: 'firewall', kind: 'filtered', uncertain: false, intended: true,
+            allowed: [{ proto: 'udp', from: 53, to: 53, rules: ['dns'] }] }],
+        blocks: [{ rule: 'wall', pairs: [{ from: 'device:tv', to: 'firewall', blocked: [
+            { proto: 'tcp', from: 0, to: 65535 }, { proto: 'udp', from: 0, to: 52 }, { proto: 'udp', from: 54, to: 65535 },
+            { proto: 'icmp', from: null, to: null }, { proto: 'other', from: null, to: null }] }] }]
+    };
+    check('a block around an allowed hole reads "all but" the hole',
+        cb.buildModel(holed, { showBlocks: true }).nodes.find((n) => n.type === 'blockhub').ip === '1 pair · all but udp/53');
+
+    const smoke = cb.buildModel(graph, { showBlocks: true }).nodes.find((n) => n.type === 'blockhub');
+    check('a partial block shows the hole: its ports, and what the rest allows',
+        smoke.ip === '1 pair · tcp/22' && smoke.pairs[0].otherwise === 'tcp/445');
+    check('a hidden source drops its pairs; no visible source, no pill',
+        !cb.buildModel(iot, { showBlocks: true, filter: { hiddenSegments: ['vtnet2'], query: '' } }).nodes.some((n) => n.type === 'blockhub'));
+
+    const ex = require(path.join(__dirname, 'fixtures', 'example_graph.json'));
+    for (const mode of ['star', 'columns']) {
+        const m = cb.layout(cb.buildModel(ex, { showBlocks: true, groupByRule: true }), {}, mode);
+        const pill = m.nodes.find((n) => n.type === 'blockhub');
+        const boxes = cb.segmentBoxes(m);
+        check(mode + ': the block pill sits outside every segment box', !!pill && boxes.every((b) =>
+            pill.x >= b.x + b.w || pill.x + pill.w <= b.x || pill.y >= b.y + b.h || pill.y + pill.h <= b.y));
+        const r = cb.routeAll(m);
+        check(mode + ': block lines all routed, nothing on top of anything', m.edges.every((e) => Array.isArray(r[e.id])) && clashes(r) === 0);
+        check(mode + ': pill and block-line tooltips build', [pill].concat(m.edges.filter((e) => e.block)).every((it) => cb.tooltipLines(m, it).length > 1));
+    }
+}
+
 // ------------------------------------------------------------ edges go round boxes and names
 {
     // a run passing strictly through a rectangle

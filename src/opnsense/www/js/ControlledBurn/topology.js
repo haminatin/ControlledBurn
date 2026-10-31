@@ -298,6 +298,8 @@
      * opts.hiddenLinks: when the filter hides devices, keep a link from
      *   each visible device to a "ghost" per hidden segment it reaches or
      *   is reached from (default true)
+     * opts.showBlocks: a pill per explicit block rule, with a line from
+     *   each visible source it blocks (blockPills())
      */
     function buildModel(graph, opts) {
         opts = opts || {};
@@ -445,6 +447,9 @@
         if (opts.groupByRule) {
             edges = groupByRule(nodes, edges, graph.rules || {});
         }
+        if (opts.showBlocks) {
+            blockPills(nodes, edges, graph, visible, allById);
+        }
 
         var segments = ifOrder.filter(function (physical) {
             return nodes.some(function (n) { return n.segment === physical; });
@@ -582,6 +587,138 @@
             });
         });
         return edges.filter(function (e) { return !grouped[e.id]; }).concat(out);
+    }
+
+    /**
+     * Whether blocked ranges cover everything in a family: tcp and udp on
+     * every usable port, and the other protocols.
+     */
+    function blocksEverything(ranges, family) {
+        var full = function (proto) {
+            return ranges.some(function (r) {
+                return (r.family || 'inet') === family && r.proto === proto
+                    && (r.from === null || (r.from <= 1 && r.to === 65535));
+            });
+        };
+        return full('tcp') && full('udp') && full('other');
+    }
+
+    /**
+     * Whether blocked and allowed ranges together decide everything in a
+     * family (tcp and udp on every usable port, and the other protocols):
+     * then a block reads best as "all but" what's allowed.
+     */
+    function decidesEverything(blocked, allowed, family) {
+        var ranges = blocked.concat(allowed).filter(function (r) { return (r.family || 'inet') === family; });
+        var protos = {};
+        ranges.forEach(function (r) { (protos[r.proto] = protos[r.proto] || []).push(r); });
+        if (!protos.tcp || !protos.udp || !protos.other) {
+            return false;
+        }
+        return Object.keys(protos).every(function (proto) {
+            var list = protos[proto];
+            if (list[0].from === null) {
+                return true;
+            }
+            var next = 1;
+            list.slice().sort(function (a, b) { return a.from - b.from; }).forEach(function (r) {
+                if (r.from <= next) {
+                    next = Math.max(next, r.to + 1);
+                }
+            });
+            return next > 65535;
+        });
+    }
+
+    /**
+     * "Block rules" view: a red pill per explicit block rule that decides
+     * something (graph.blocks: OPNsense's automatic blocks and the default
+     * deny aren't in it), with one line into it from each visible source
+     * it blocks. The pill names the rule and counts its pairs; each pair
+     * keeps its blocked ports and what the rest of the pair still allows,
+     * for the card. Adds the pills to nodes and their lines to edges.
+     */
+    function blockPills(nodes, edges, graph, visible, allById) {
+        var allowedBy = {};
+        graph.edges.forEach(function (e) {
+            if (e.kind === 'filtered' && e.allowed && e.allowed.length) {
+                allowedBy[e.from + '>' + e.to] = e;
+            }
+        });
+        var rules = graph.rules || {};
+        (graph.blocks || []).forEach(function (b) {
+            var pairs = b.pairs.filter(function (p) { return visible[p.from] && allById[p.to]; }).map(function (p) {
+                var fam = byFamily(p.blocked);
+                var present = (fam.v4.length ? 1 : 0) + (fam.v6.length ? 1 : 0);
+                var all = ['inet', 'inet6'].filter(function (f) { return blocksEverything(p.blocked, f); });
+                // blocked at only some of the destination's addresses (the
+                // firewall's, or named internet networks): say which
+                var at = {};
+                var partial = p.blocked.every(function (r) {
+                    (r.at || []).forEach(function (a) { at[a] = true; });
+                    return r.at && r.at.length;
+                });
+                var e = allowedBy[p.from + '>' + p.to];
+                var otherwise = e ? edgeLabel(e.allowed, e.uncertain, e.allows_all) : null;
+                // a hole cut out of an allowed edge: "all but" what it allows
+                // (in the same family: an IPv4 block has no hole because
+                // IPv6 allows something)
+                var holed = !partial && e && ['inet', 'inet6'].filter(function (f) {
+                    return byFamily(p.blocked)[f === 'inet' ? 'v4' : 'v6'].length;
+                }).every(function (f) {
+                    return byFamily(e.allowed)[f === 'inet' ? 'v4' : 'v6'].length && decidesEverything(p.blocked, e.allowed, f);
+                });
+                return {
+                    from: p.from,
+                    to: p.to,
+                    blocked: p.blocked,
+                    label: (holed ? 'all but ' + otherwise : all.length === present ? 'everything' : edgeLabel(p.blocked, false, all))
+                        + (partial ? ' to ' + Object.keys(at).join(', ') : ''),
+                    otherwise: otherwise
+                };
+            });
+            if (!pairs.length) {
+                return;
+            }
+            var id = 'block:' + b.rule;
+            var descr = (rules[b.rule] && rules[b.rule].descr) || b.rule;
+            var labels = {};
+            pairs.forEach(function (p) { labels[p.label] = true; });
+            var ports = Object.keys(labels);
+            var pill = {
+                id: id,
+                type: 'blockhub',
+                rule: b.rule,
+                name: descr,
+                ip: pairs.length + (pairs.length === 1 ? ' pair' : ' pairs') + (ports.length === 1 ? ' \u00b7 ' + ports[0] : ''),
+                colour: 'blocked',
+                segment: null,
+                aliases: [],
+                ipv6: [],
+                evaluable: true,
+                pairs: pairs,
+                h: GHOST_H
+            };
+            pill.nameShown = '\u2715 ' + truncate(descr, 22);
+            pill.ip = truncate(pill.ip, 30);
+            pill.w = Math.round(Math.max(GHOST_MIN_W, Math.max(pill.nameShown.length * 7.4, pill.ip.length * 7.2) + 28));
+            nodes.push(pill);
+            var bySource = {};
+            pairs.forEach(function (p) { (bySource[p.from] = bySource[p.from] || []).push(p); });
+            Object.keys(bySource).forEach(function (src) {
+                edges.push({
+                    id: 'b:' + src + '>' + id,
+                    from: src,
+                    to: id,
+                    block: id,
+                    kind: 'block',
+                    colour: 'blocked',
+                    allowed: [],
+                    label: '',
+                    pairs: bySource[src]
+                });
+            });
+        });
     }
 
     /**
@@ -902,10 +1039,14 @@
      * segment), on the side facing the middle of their destinations,
      * stacked if several share a side, and clear of every box and node:
      * failing that side, another, else further out. Sources that are the firewall or
-     * WAN: beside that node instead.
+     * WAN: beside that node instead. Block pills ("Block rules") are placed
+     * the same way, facing the destinations they block.
      */
+    function isHub(n) {
+        return n.type === 'rulehub' || n.type === 'blockhub';
+    }
     function placeHubs(model, positions) {
-        var hubs = model.nodes.filter(function (n) { return n.type === 'rulehub'; });
+        var hubs = model.nodes.filter(isHub);
         if (!hubs.length) {
             return;
         }
@@ -921,6 +1062,9 @@
             model.edges.forEach(function (e) {
                 if (e.to === h.id && byId[e.from]) { srcs.push(byId[e.from]); }
                 if (e.from === h.id && byId[e.to]) { dsts.push(byId[e.to]); }
+            });
+            (h.pairs && h.type === 'blockhub' ? h.pairs : []).forEach(function (p) {
+                if (byId[p.to]) { dsts.push(byId[p.to]); }
             });
             var seg = srcs.length && srcs[0].segment;
             var box = seg && boxes[seg] ? boxes[seg]
@@ -941,7 +1085,7 @@
         });
         // keep clear of segment boxes, other nodes and hubs already placed:
         // the preferred side first, then the others, then further out
-        var placed = model.nodes.filter(function (n) { return n.type !== 'rulehub'; })
+        var placed = model.nodes.filter(function (n) { return !isHub(n); })
             .map(function (n) { return { x: n.x, y: n.y, w: n.w, h: n.h }; })
             .concat(segmentBoxes(model));
         var clear = function (r) {
@@ -1534,7 +1678,7 @@
         // again from the grid routes with those pairs kept apart too
         var grid0 = JSON.stringify(routes);
         var apart = {};
-        for (var pass = 0; pass < 5; pass++) {
+        for (var pass = 0; pass < 8; pass++) {
             routes = JSON.parse(grid0);
             assignLanes(model, routes, apart);
             var clashes = laneClashes(routes);
@@ -2698,6 +2842,22 @@
             hl.push('Click the line for the pairs and the rule.');
             return hl;
         }
+        if (item.kind && item.block) {
+            var bl = [byId[item.from].name + ' \u2192 blocked by ' + byId[item.to].name];
+            item.pairs.forEach(function (p) {
+                bl.push(truncate(byId[p.to] ? byId[p.to].name : p.to, TIP_RULE_CHARS) + ':  ' + truncate(p.label, TIP_RULE_CHARS));
+            });
+            bl.push('Click the line for the ports and the rule.');
+            return bl;
+        }
+        if (item.type === 'blockhub') {
+            var bsrcs = {};
+            item.pairs.forEach(function (p) { bsrcs[p.from] = true; });
+            return [item.name, 'Block rule: decides ' + item.pairs.length + ' device pair(s) from '
+                + Object.keys(bsrcs).length + ' source(s). Lines come from the devices it blocks.',
+                'Rules are checked in order: this one blocks what no rule above it allowed.',
+                'Click to highlight its lines. Untick "Block rules" to hide these.'];
+        }
         if (item.type === 'rulehub') {
             var srcs = {};
             var dsts = {};
@@ -2782,7 +2942,8 @@
      * and positions() (current node centres, for saving a layout).
      *
      * opts.showUnfiltered, opts.positions, opts.layout ('star' or
-     *   'columns'), opts.hiddenLinks, opts.groupByRule: see buildModel()
+     *   'columns'), opts.hiddenLinks, opts.groupByRule, opts.showBlocks:
+     *   see buildModel()
      *   / layout()
      * opts.onShowSegment: function(segmentId) to unhide a segment, from a
      *   ghost (a filtered-out segment's stand-in) or a grouped edge's card
@@ -2817,7 +2978,7 @@
         var defs = el('defs', {}, svg);
         // sized in user space (not scaled by the line's stroke width) so the
         // heads stay small; a thick stroke on a short chevron keeps them bold
-        ['filtered', 'uncertain', 'intended', 'default', 'checked', 'stale'].forEach(function (kind) {
+        ['filtered', 'uncertain', 'intended', 'default', 'checked', 'stale', 'blocked'].forEach(function (kind) {
             var m = el('marker', {
                 id: 'cb-arrow-' + kind, viewBox: '0 0 10 10', refX: '8', refY: '5',
                 markerWidth: '9', markerHeight: '9', markerUnits: 'userSpaceOnUse',
@@ -2946,6 +3107,28 @@
                     rows.uncertain.forEach(function (r) { ruleLine(ub, r); });
                 }
             };
+            if (e.block) {
+                var pill = byId[e.block];
+                div('cb-card-note', card, 'Blocked by one rule: ' + pill.name + '. What it blocks from here:');
+                e.pairs.forEach(function (p) {
+                    var item = div('cb-card-item', card);
+                    var portBox = div('cb-card-portbox', item);
+                    div('cb-card-port', portBox, p.label);
+                    var rb = div('cb-card-rules', item);
+                    div('cb-card-rule-name', rb, '\u2192 ' + (byId[p.to] ? byId[p.to].name : p.to));
+                    div('cb-card-nolink', rb, p.otherwise ? 'Otherwise allowed: ' + p.otherwise : 'Nothing else allowed');
+                });
+                div('cb-card-section', card, 'The rule');
+                ruleLine(div('cb-card-rules', card), {
+                    name: pill.name,
+                    link: opts.ruleLink ? opts.ruleLink(pill.rule) : null
+                });
+                lastCardEvt = { clientX: evt.clientX, clientY: evt.clientY };
+                var bbox = container.getBoundingClientRect();
+                card.style.left = Math.max(8, Math.min(evt.clientX - bbox.left + 12, bbox.width - card.offsetWidth - 8)) + 'px';
+                card.style.top = Math.max(8, Math.min(evt.clientY - bbox.top + 12, bbox.height - card.offsetHeight - 8)) + 'px';
+                return;
+            }
             if (e.hub) {
                 var hubNode = byId[e.hub];
                 div('cb-card-note', card, 'Allowed by one rule: ' + hubNode.name + '. Each pair this line stands for:');
@@ -3196,7 +3379,7 @@
             gNodes.textContent = '';
             model.nodes.forEach(function (n) {
                 var cls = 'cb-node cb-node-' + n.type + (n.evaluable || n.type !== 'device' ? '' : ' cb-node-off')
-                    + (n.type === 'rulehub' ? ' cb-c-' + n.colour : '');
+                    + (isHub(n) ? ' cb-c-' + n.colour : '');
                 var g = el('g', { 'class': cls, transform: 'translate(' + n.x + ',' + n.y + ')' }, gNodes);
                 el('path', { d: squirclePath(0, 0, n.w, n.h, 14), 'class': 'cb-node-body' }, g);
                 if (ICONS[n.type]) {

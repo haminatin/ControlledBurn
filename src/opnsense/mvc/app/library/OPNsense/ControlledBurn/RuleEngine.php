@@ -1921,8 +1921,13 @@ class RuleEngine
      * 'inet6') in which every protocol evaluated passes on every usable
      * port, so the UI can say "any" without guessing: a protocol a rule
      * blocks outright would be missing from 'allowed', not visibly blocked.
+     * 'blocked' (only when non-empty) lists the ranges a rule blocks, in the
+     * same shape as 'allowed'; ranges left to the default deny aren't in it.
+     * Where a pair has several addresses in a family (the firewall's, or
+     * the internet's named networks), a blocked range says which with
+     * 'at': the rest may well be allowed.
      *
-     * @return array{allowed: array, uncertain: bool, uncertain_rules: string[], conditional: bool, allows_all?: string[]}
+     * @return array{allowed: array, uncertain: bool, uncertain_rules: string[], conditional: bool, allows_all?: string[], blocked?: array}
      */
     public static function summarisePair(array $pair)
     {
@@ -1954,13 +1959,22 @@ class RuleEngine
                 if ($key($r) !== $key($sameFamily)) {
                     $summary['regions'][] = ['cidr' => $t['region'], 'allowed' => $r['allowed']];
                 }
+                // a rule blocking one network (e.g. "block LAN to badnet")
+                // blocks the pair to WAN on those ports
+                foreach ($r['blocked'] ?? [] as $b) {
+                    $summary['blocked'] = self::addRange($summary['blocked'] ?? [], $b + ['at' => [$t['region']]]);
+                }
             }
             return $summary;
         }
         $allowed = [];
+        $blocked = [];
         $uncertainRules = [];
         $conditional = false;
         $passing = [];   // family => proto => passing [from, to] ranges, or true
+        $perFamily = array_count_values(array_map(function ($t) {
+            return $t['family'] ?? 'inet';
+        }, $pair['targets']));
         foreach ($pair['targets'] as $target) {
             $fam = $target['family'] ?? 'inet';
             foreach ($target['slices'] as $s) {
@@ -1971,6 +1985,11 @@ class RuleEngine
                     $passing[$fam][$s['proto']] = $s['from'] === null ? false : [];
                 }
                 if ($s['verdict'] !== self::VERDICT_PASS) {
+                    if ($s['rule'] !== null) {
+                        $blocked = self::addRange($blocked, ['proto' => $s['proto'], 'from' => $s['from'], 'to' => $s['to'], 'rules' => [$s['rule']]]
+                            + ($fam === 'inet6' ? ['family' => 'inet6'] : [])
+                            + ($perFamily[$fam] > 1 ? ['at' => [$target['ip']]] : []));
+                    }
                     continue;
                 }
                 if ($s['from'] === null) {
@@ -2014,6 +2033,67 @@ class RuleEngine
         if (!empty($all)) {
             $summary['allows_all'] = $all;
         }
+        if (!empty($blocked)) {
+            // blocked at every address the pair has: no need to say which
+            foreach ($blocked as &$b) {
+                if (isset($b['at']) && count($b['at']) >= $perFamily[$b['family'] ?? 'inet']) {
+                    unset($b['at']);
+                }
+            }
+            unset($b);
+            $summary['blocked'] = $blocked;
+        }
+        return $summary;
+    }
+
+    /**
+     * Add a {proto, from, to, rules, family?, at?} range to a list of
+     * them, merging its rules (and addresses) into an existing entry for
+     * the same range.
+     */
+    private static function addRange(array $ranges, array $range)
+    {
+        foreach ($ranges as &$r) {
+            if (($r['family'] ?? 'inet') === ($range['family'] ?? 'inet')
+                && $r['proto'] === $range['proto'] && $r['from'] === $range['from'] && $r['to'] === $range['to']) {
+                $r['rules'] = array_values(array_unique(array_merge($r['rules'], $range['rules'])));
+                // no 'at' = every address, which stays the wider of the two
+                if (isset($r['at'], $range['at'])) {
+                    $r['at'] = array_values(array_unique(array_merge($r['at'], $range['at'])));
+                } else {
+                    unset($r['at']);
+                }
+                return $ranges;
+            }
+        }
+        unset($r);
+        $ranges[] = $range;
+        return $ranges;
+    }
+
+    /**
+     * Record what an edge summary's explicit block rules decide, by rule:
+     * $blocks[label][] = {from, to, blocked: ranges}. OPNsense's automatic
+     * blocks (anti-spoofing, bogons, ...) are left out, as is the default
+     * deny (never in 'blocked'). Returns the summary without 'blocked', so
+     * edges stay as they were.
+     */
+    private static function collectBlocks(array &$blocks, $from, $to, array $summary, array $rulesByLabel)
+    {
+        foreach ($summary['blocked'] ?? [] as $b) {
+            foreach ($b['rules'] as $label) {
+                if (!empty($rulesByLabel[$label]['automatic'])) {
+                    continue;
+                }
+                $pair = &$blocks[$label][$from . '>' . $to];
+                $pair = $pair ?? ['from' => $from, 'to' => $to, 'blocked' => []];
+                $range = $b;
+                unset($range['rules']);
+                $pair['blocked'][] = $range;
+                unset($pair);
+            }
+        }
+        unset($summary['blocked']);
         return $summary;
     }
 
@@ -2182,13 +2262,17 @@ class RuleEngine
      * @param array $devices placed devices: [{id, ip, hostname, if, ...}]
      * @param array $rules prepared rules
      * @param array $ifaces
-     * @return array{nodes: array, edges: array, rules: array} 'rules' maps
-     *         every rule label an edge refers to => {descr}
+     * @return array{nodes: array, edges: array, rules: array, blocks: array}
+     *         'rules' maps every rule label an edge or block refers to =>
+     *         {descr}; 'blocks' lists each explicit block rule that decides
+     *         something: {rule, pairs: [{from, to, blocked: ranges}]},
+     *         including pairs it blocks entirely (which have no edge)
      */
     public static function buildGraph(array $devices, array $rules, array $ifaces, array $redirects = [])
     {
         $nodes = [];
         $edges = [];
+        $blocks = [];
 
         foreach ($devices as $device) {
             $nodes[] = [
@@ -2235,7 +2319,7 @@ class RuleEngine
                 if (empty($pair['targets'])) {
                     continue;
                 }
-                $summary = self::summarisePair($pair);
+                $summary = self::collectBlocks($blocks, 'device:' . $src['id'], $to, self::summarisePair($pair), $rulesByLabel);
                 if (empty($summary['allowed']) && !$summary['uncertain'] && empty($summary['regions'])) {
                     continue;
                 }
@@ -2255,7 +2339,7 @@ class RuleEngine
                 if (empty($in['targets'])) {
                     continue;
                 }
-                $summary = self::summarisePair(['targets' => $in['targets']]);
+                $summary = self::collectBlocks($blocks, self::NODE_WAN, 'device:' . $dst['id'], self::summarisePair(['targets' => $in['targets']]), $rulesByLabel);
                 // only draw what actually gets through; an inert forward is
                 // reported by the Rule check instead (inertForwards)
                 if (empty($summary['allowed']) && !$summary['uncertain']) {
@@ -2268,7 +2352,7 @@ class RuleEngine
                     $forwardRules[$f['label']] = 'Port forward (Firewall Rule: Pass): ' . $f['text'];
                 }
             }
-            $fwIn = self::summarisePair(self::evaluateInboundFirewall($rules, $ifaces));
+            $fwIn = self::collectBlocks($blocks, self::NODE_WAN, self::NODE_FIREWALL, self::summarisePair(self::evaluateInboundFirewall($rules, $ifaces)), $rulesByLabel);
             if (!empty($fwIn['allowed']) || $fwIn['uncertain']) {
                 $edges[] = ['from' => self::NODE_WAN, 'to' => self::NODE_FIREWALL, 'kind' => self::EDGE_FILTERED]
                     + self::markIntended($fwIn, self::NODE_FIREWALL, $rulesByLabel, $ifaces);
@@ -2293,6 +2377,9 @@ class RuleEngine
                 }
             }
         }
+        foreach (array_keys($blocks) as $label) {
+            $referenced[$label] = true;
+        }
         $ruleInfo = [];
         foreach ($rules as $rule) {
             if (isset($referenced[$rule['label']])) {
@@ -2309,6 +2396,11 @@ class RuleEngine
             }
         }
 
-        return ['nodes' => $nodes, 'edges' => $edges, 'rules' => $ruleInfo];
+        $blockList = [];
+        foreach ($blocks as $label => $pairs) {
+            $blockList[] = ['rule' => (string)$label, 'pairs' => array_values($pairs)];
+        }
+
+        return ['nodes' => $nodes, 'edges' => $edges, 'rules' => $ruleInfo, 'blocks' => $blockList];
     }
 }

@@ -327,6 +327,47 @@ check(
     $summary['allowed'] === [['proto' => 'tcp', 'from' => 443, 'to' => 443, 'rules' => ['gui']]]
 );
 
+// ---------------------------------------------------------------- blocks
+$out = rule(['label' => 'out', 'direction' => 'out', 'interface' => 'any', 'quick' => false]);
+$noSsh = rule(['label' => 'no-ssh', 'action' => 'block', 'protocol' => 'tcp', 'destination' => ['10.0.10.20'], 'to_port' => '= 22']);
+$blocksOf = function (array $graph) {
+    $by = [];
+    foreach ($graph['blocks'] as $b) {
+        $by[$b['rule']] = $b['pairs'];
+    }
+    return $by;
+};
+$g = RuleEngine::buildGraph([$laptop, $nas], prep([$noSsh, rule(['label' => 'any']), $out]), $IFACES);
+check(
+    'blocks: a block cutting a hole in an allowed edge lists that pair and port',
+    $blocksOf($g) === ['no-ssh' => [['from' => 'device:aa', 'to' => 'device:bb', 'blocked' => [['proto' => 'tcp', 'from' => 22, 'to' => 22]]]]]
+);
+$edge = array_values(array_filter($g['edges'], function ($e) { return $e['from'] === 'device:aa' && $e['to'] === 'device:bb'; }))[0];
+check('blocks: edges stay as they were (no blocked key)', !isset($edge['blocked']));
+check('blocks: the block rule is described in rules', isset($g['rules']['no-ssh']));
+
+// the firewall's own 10.0.10.1 is inside 10.0.10.0/24 too
+$g = RuleEngine::buildGraph([$laptop, $nas], prep([rule(['label' => 'wall', 'action' => 'block', 'destination' => ['10.0.10.0/24']]), $out]), $IFACES);
+$wall = $blocksOf($g)['wall'] ?? [];
+check(
+    'blocks: a pair blocked entirely by a rule has no edge but is in blocks',
+    !array_filter($g['edges'], function ($e) { return $e['to'] === 'device:bb'; })
+    && array_column($wall, 'to') === ['device:bb', 'firewall']
+    && in_array(['proto' => 'tcp', 'from' => 0, 'to' => 65535], $wall[0]['blocked'], true)
+);
+
+check(
+    'blocks: a block on some of a pair\'s addresses says which (at); on all of them, it doesn\'t',
+    ($wall[1]['blocked'][0]['at'] ?? null) === ['10.0.10.1'] && !isset($wall[0]['blocked'][0]['at'])
+);
+
+$auto = RuleEngine::markAutomatic(prep([$noSsh, rule(['label' => 'any']), $out]), ['no-ssh' => true]);
+check('blocks: automatic blocks are left out', RuleEngine::buildGraph([$laptop, $nas], $auto, $IFACES)['blocks'] === []);
+check(
+    'blocks: the default deny is never a block',
+    RuleEngine::buildGraph([$laptop, $nas], prep([rule(['label' => 'web', 'protocol' => 'tcp', 'to_port' => '= 443']), $out]), $IFACES)['blocks'] === []
+);
+
 // ---------------------------------------------------------------- graph
 $rules = prep([
     rule(['label' => 'smb', 'protocol' => 'tcp', 'source' => ['192.168.77.191'], 'destination' => ['10.0.10.20'], 'to_port' => '= 445']),

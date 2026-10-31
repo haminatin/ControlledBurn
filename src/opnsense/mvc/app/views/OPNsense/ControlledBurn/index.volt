@@ -38,6 +38,9 @@
             <label style="font-weight: normal; margin-right: 1em;" title="{{ lang._('Merge the edges that one rule produces entirely into a hub for that rule. A rule gets a hub when it produces at least 3 such edges and the hub draws fewer lines than the edges it replaces, or when it produces 6 or more from or to a single node (one device, or one hidden segment); otherwise its edges stay individual. Edges that several rules allow always stay individual.') }}">
                 <input type="checkbox" id="cb-group-rule"> {{ lang._('Group by rule') }}
             </label>
+            <label style="font-weight: normal; margin-right: 1em;" title="{{ lang._('Show a red pill for each block rule you wrote that actually blocks something, with a line from each device it blocks. The card lists the blocked ports per pair and what the rest of the pair still allows. The automatic blocks OPNsense adds and the default deny are not shown, nor are block rules that never apply (see the Rule check).') }}">
+                <input type="checkbox" id="cb-show-blocks"> {{ lang._('Block rules') }}
+            </label>
             <label style="font-weight: normal; margin-right: 1em;" title="{{ lang._('When the filter hides devices, still show what visible devices can reach among them (and be reached from)') }}">
                 <input type="checkbox" id="cb-hidden-links" checked> {{ lang._('Links to hidden devices') }}
             </label>
@@ -222,6 +225,22 @@
             redraw();
         });
 
+        // block rules (per browser; off by default)
+        var SHOW_BLOCKS_KEY = 'controlledburn.showBlocks';
+        try {
+            $('#cb-show-blocks').prop('checked', window.localStorage.getItem(SHOW_BLOCKS_KEY) === '1');
+        } catch (e) {
+            // keep the default
+        }
+        $('#cb-show-blocks').change(function () {
+            try {
+                window.localStorage.setItem(SHOW_BLOCKS_KEY, $(this).is(':checked') ? '1' : '0');
+            } catch (e) {
+                // a viewing convenience only
+            }
+            redraw();
+        });
+
         // a ghost (or a grouped edge's card) asks to show its segment
         function showSegment(segmentId) {
             filter.hiddenSegments = filter.hiddenSegments.filter(function (id) { return id !== segmentId; });
@@ -398,7 +417,8 @@
                 showUnfiltered: showUnfiltered,
                 filter: filter,
                 hiddenLinks: $('#cb-hidden-links').is(':checked'),
-                groupByRule: $('#cb-group-rule').is(':checked')
+                groupByRule: $('#cb-group-rule').is(':checked'),
+                showBlocks: $('#cb-show-blocks').is(':checked')
             }).edges.length;
         }
 
@@ -423,6 +443,7 @@
                 showUnfiltered: box.is(':checked'),
                 hiddenLinks: $('#cb-hidden-links').is(':checked'),
                 groupByRule: $('#cb-group-rule').is(':checked'),
+                showBlocks: $('#cb-show-blocks').is(':checked'),
                 onShowSegment: showSegment,
                 portNames: $('#cb-port-names').is(':checked'),
                 filter: filter,

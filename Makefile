@@ -1,5 +1,5 @@
 PLUGIN_NAME=		controlledburn
-PLUGIN_VERSION=		0.10.4
+PLUGIN_VERSION=		0.11.0
 PLUGIN_REVISION=	0
 PLUGIN_COMMENT=		Interactive firewall topology and reachability map
 PLUGIN_WWW=		https://github.com/haminatin/ControlledBurn

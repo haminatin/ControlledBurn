@@ -41,7 +41,13 @@ function stage($name)
     foreach ($g['dead_rules'] as $d) {
         $dead[$d['descr']] = $d;
     }
-    return [$edges, $dead];
+    $blocks = [];
+    foreach ($g['blocks'] as $b) {
+        $blocks[$g['rules'][$b['rule']]['descr']] = array_map(function ($p) {
+            return [$p['from'], $p['to']];
+        }, $b['pairs']);
+    }
+    return [$edges, $dead, $blocks];
 }
 
 function allowsAllTcp($edge)
@@ -66,12 +72,15 @@ check('mistake: Rule check says "Block IoT to LAN" never applies, shadowed by th
 check('mistake: the dead block highlights iot-cam -> both LAN devices and the firewall',
     ($dead['Block IoT to LAN']['pairs'] ?? null) === [[$cam, $lab], [$cam, $nas], [$cam, 'firewall']]);
 
+check('mistake: the shadowed block decides nothing, so it is not shown as a block', stage('mistake')[2] === []);
 check('mistake: iot-cam reaches the internet via the allow-all (broad)', allowsAllTcp($e["$cam>wan"] ?? []) && $e["$cam>wan"]['intended'] === false);
 
 // ---- 2. the naive fix: block moved first
 [$e, $dead] = stage('reorder');
 check('reorder: iot-cam no longer reaches the LAN', !isset($e["$cam>$lab"]) && !isset($e["$cam>$nas"]));
 check('reorder: Rule check is clean', $dead === []);
+check('reorder: "Block IoT to LAN" is shown blocking iot-cam -> both LAN devices and the firewall',
+    stage('reorder')[2] === ['Block IoT to LAN' => [[$cam, $lab], [$cam, $nas], [$cam, 'firewall']]]);
 check('reorder: but iot-cam still reaches the firewall on every port (the second hole)', allowsAllTcp($e["$cam>firewall"] ?? []));
 
 // ---- 3. the proper fix

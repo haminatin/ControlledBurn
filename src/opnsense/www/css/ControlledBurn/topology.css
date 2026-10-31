@@ -24,6 +24,7 @@
     --cb-intended: #2f74c0;
     --cb-default: #7b4fd6;
     --cb-checked: #1f9d63;
+    --cb-blocked: #c4314b;
     --cb-label-bg: #ffffff;
     --cb-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     --cb-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
@@ -59,6 +60,7 @@
     --cb-intended: #4f9dff;
     --cb-default: #b07cff;
     --cb-checked: #3ecf8e;
+    --cb-blocked: #ff5c77;
     --cb-label-bg: #1d242c;
     --cb-shadow: rgba(0, 0, 0, 0.45);
     --cb-tip-bg: #f1f4f6;
@@ -100,6 +102,10 @@
 .cb-node-rulehub .cb-node-body { fill: var(--cb-label-bg); stroke: var(--cb-edge); stroke-width: 1.6; filter: none; }
 .cb-node-rulehub .cb-node-name { font-size: 12px; }
 .cb-node-rulehub .cb-node-ip { fill: var(--cb-edge); }
+/* "block rules": a pill per explicit block rule, red, a heavier outline */
+.cb-node-blockhub .cb-node-body { fill: var(--cb-label-bg); stroke: var(--cb-edge); stroke-width: 2.2; filter: none; }
+.cb-node-blockhub .cb-node-name { font-size: 12px; fill: var(--cb-edge); }
+.cb-node-blockhub .cb-node-ip { fill: var(--cb-edge); }
 /* stand-in for a segment's devices hidden by the filter */
 .cb-node-ghost .cb-node-body { fill: transparent; stroke: var(--cb-muted); stroke-width: 1.2; stroke-dasharray: 4 4; filter: none; }
 .cb-node-ghost .cb-node-name { fill: var(--cb-muted); font-weight: 600; }
@@ -128,6 +134,9 @@
 .cb-c-intended { --cb-edge: var(--cb-intended); }
 .cb-c-default { --cb-edge: var(--cb-default); }
 .cb-c-checked { --cb-edge: var(--cb-checked); }
+.cb-c-blocked { --cb-edge: var(--cb-blocked); }
+/* a block stops traffic: a still, solid line */
+.cb-edge-block .cb-edge-line { stroke-dasharray: none; stroke-width: 1.6; }
 /* changed since checked: green line, amber "changed" label */
 .cb-c-stale { --cb-edge: var(--cb-checked); }
 .cb-label.cb-c-stale .cb-label-bg { stroke: var(--cb-uncertain); stroke-width: 1.5; stroke-dasharray: 3 2; }
@@ -138,6 +147,7 @@
 
 .cb-arrow { fill: none; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
 .cb-arrow-filtered { stroke: var(--cb-allowed); }
+.cb-arrow-blocked { stroke: var(--cb-blocked); }
 .cb-arrow-uncertain { stroke: var(--cb-uncertain); }
 .cb-arrow-intended { stroke: var(--cb-intended); }
 .cb-arrow-default { stroke: var(--cb-default); }

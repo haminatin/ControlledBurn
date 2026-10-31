@@ -39,7 +39,7 @@
         {
             "id": "firewall",
             "type": "firewall",
-            "label": "Firewall",
+            "label": "This Firewall",
             "evaluable": true
         },
         {
@@ -133,11 +133,34 @@
             "descr": "LAN to GUI",
             "automatic": false
         },
+        "22222222-2222-2222-2222-222222222222": {
+            "descr": "Block SSH to nas",
+            "automatic": false
+        },
         "33333333-3333-3333-3333-333333333333": {
             "descr": "SMB to nas",
             "automatic": false
         }
     },
+    "blocks": [
+        {
+            "rule": "22222222-2222-2222-2222-222222222222",
+            "pairs": [
+                {
+                    "from": "device:bc:24:11:77:03:01",
+                    "to": "device:bc:24:11:77:03:02",
+                    "blocked": [
+                        {
+                            "proto": "tcp",
+                            "from": 22,
+                            "to": 22
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "hostname": "",
     "interfaces": {
         "vtnet0": {
             "key": "lan",
